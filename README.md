@@ -12,7 +12,7 @@ Please refer to the [yes® Relying Party Developer Guide](https://yes.com/docs/r
 
 ## How to Use (Identity Flow)
 
-A stand-alone minimal example is provided in `/examples/simple.py`.
+A stand-alone minimal example is provided in [`simple_identity.py`](examples/simple_identity.py).
 
 **Step 1:** Acquire credentials to access the yes® ecosystem as described [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/). Note that for testing, you can use the Sandbox Demo Client credentials published [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/#_sandbox_demo_client).
 
@@ -220,9 +220,51 @@ Got user data in the ID token:
 }
 ```
 
-See the full example in `/examples/simple.py`.
+See the full example in [`simple_identity.py`](examples/simple_identity.py).
 
 ## How to Use (Signing Flow)
 
-Additional configuration parameter: `qtsp_id`.
+**Note:** Besides the same client data as described for the identity flow, for signing, you also need the identifier of the QTSP to create the signature with. Please contact yes® to receive the identifier. This identifier needs to be added to the configuration:
 
+```python
+...
+yes_configuration = {
+    ...
+    "qtsp_id": "sp:yes.com:..."
+    ...
+}
+...
+```
+
+**Step 1:** Prepare document to be signed and calculate the hash values.
+
+```python
+document_digests = [
+    {
+        "hash": "sTOgwOm+474gFj0q0x1iSNspKqbcse4IeiqlDg/HWuI=",
+        "label": "Kreditvertrag",
+    },
+    {
+        "hash": "HZQzZmMAIWekfGH0/ZKW1nsdt0xg3H6bZYztgsMTLw0=",
+        "label": "Vertrag Restschuldversicherung",
+    },
+]
+
+hash_algorithm_oid = "2.16.840.1.101.3.4.2.1"
+```
+
+**Step 2:** Create and maintain a `YesSigningSession` and create a `YesSigningFlow` based on it.
+
+```python
+session = yes.YesSigningSession(hash_algorithm_oid, document_digests)
+flow = yes.YesSigningFlow(yes_sandbox_test_config, session)
+```
+
+**Proceed as above**
+
+**Final Step:** Retrieve the access token and create the signatures:
+
+```python
+flow.send_token_request()
+sigs = flow.create_signatures()
+```

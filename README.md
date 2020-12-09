@@ -1,4 +1,4 @@
-# yes® Client Implementation for Python 3
+# yes® Relying Party/Client Implementation in Python 3
 
 This library implements a complete yes® relying party / client flow in Python.
 
@@ -14,9 +14,9 @@ Please refer to the [yes® Relying Party Developer Guide](https://yes.com/docs/r
 
 A stand-alone minimal example is provided in `/examples/simple.py`.
 
-**Step 1:** Acquire credentials to access the yes® service as described [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/). Note that for testing, you can use the Sandbox Demo Client credentials published [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/#_sandbox_demo_client).
+**Step 1:** Acquire credentials to access the yes® ecosystem as described [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/). Note that for testing, you can use the Sandbox Demo Client credentials published [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/#_sandbox_demo_client).
 
-**Step 2:** Put the credentials into a configuration dictionary.
+**Step 2:** Put the `client_id`, the paths to the certificate and private key file, and other information into a configuration dictionary.
 
 ```python
 yes_configuration = {

@@ -10,10 +10,6 @@ class YesUnknownIssuerError(YesError):
     pass
 
 
-class YesInvalidIssuerError(YesError):
-    pass
-
-
 class YesAccountSelectionRequested(YesError):
     redirect_uri: str
 

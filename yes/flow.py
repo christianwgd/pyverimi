@@ -1,15 +1,14 @@
 import json
 import logging
-from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
-import random
+from typing import Dict, List, Optional, Tuple
 
 import jwt
 import requests
 from furl import furl
 
 from .errors import *
-from .session import YesSession, YesIdentitySession, YesSigningSession
+from .session import YesIdentitySession, YesSession, YesSigningSession
 
 
 class YesFlow(ABC):
@@ -51,6 +50,24 @@ class YesFlow(ABC):
         account chooser. User needs to be redirected to this URL.
         """
         return self._get_account_chooser_url()
+
+    def _decode_or_raise_error(self, response, expected_status=200, expect_empty=False):
+        if not expect_empty:
+            try:
+                response_contents = response.json()
+            except Exception:
+                raise YesError(
+                    f"Unable to JSON decode response; status code={response.status_code}; contents={response.text}."
+                )
+        else:
+            response_contents = response.text
+
+        if response.status_code != expected_status:
+            raise YesError(
+                f"Response status code {response.status_code}, response: {response.text}."
+            )
+
+        return response_contents
 
     def _get_account_chooser_url(self, select_account=False):
         ac_redirect = furl(self.urls["account_chooser"])
@@ -94,14 +111,9 @@ class YesFlow(ABC):
         """
         Retrieve the ODIC/OAuth configuration from the discovered OIDC issuer.
         """
-        response = requests.get(
-            self.session.issuer_url + self.SERVER_CONFIGURATION_SUFFIX
+        wkdoc = self._decode_or_raise_error(
+            requests.get(self.session.issuer_url + self.SERVER_CONFIGURATION_SUFFIX)
         )
-
-        if response.status_code != 200:
-            raise YesError("Unable to retrieve OIDC configuraton.")
-
-        wkdoc = response.json()
 
         if wkdoc["issuer"] != self.session.issuer_url:
             raise Exception("Illegal issuer url in openid configuration document!")
@@ -121,27 +133,19 @@ class YesFlow(ABC):
         par_endpoint = self.session.server_config[
             "pushed_authorization_request_endpoint"
         ]
-        par_response = requests.post(
-            par_endpoint,
-            data=par_ameters,
-            cert=(self.config["cert_file"], self.config["key_file"]),
+        par_response_contents = self._decode_or_raise_error(
+            requests.post(
+                par_endpoint,
+                data=par_ameters,
+                cert=(self.config["cert_file"], self.config["key_file"]),
+            ),
+            expected_status=201,
         )
 
-        par_response_contents = par_response.json()
-
-        if par_response.status_code != 201:
-            ye = YesOAuthError(par_response_contents["error_description"])
-            ye.oauth_error = par_response_contents["error"]
-            ye.oauth_error_description = par_response_contents["error_description"]
-            raise ye
-
-        self.log.debug(f"Received PAR response: {json.dumps(par_response)}")
-
-        if "error" in par_response:
-            raise YesError(f"Error during PAR request: {json.dumps(par_response)}")
+        self.log.debug(f"Received PAR response: {json.dumps(par_response_contents)}")
 
         redirect_uri = furl(self.session.server_config["authorization_endpoint"])
-        redirect_uri.args["request_uri"] = par_response["request_uri"]
+        redirect_uri.args["request_uri"] = par_response_contents["request_uri"]
         redirect_uri.args["client_id"] = self.config["client_id"]
         self.log.debug(
             f"yes® OIDC provider pushed auth request redirection to {str(redirect_uri)}."
@@ -205,14 +209,13 @@ class YesFlow(ABC):
         }
         self.log.debug(f"Prepared token request: {json.dumps(token_parameters)}")
 
-        token_response = requests.post(
-            token_endpoint,
-            data=token_parameters,
-            cert=(self.config["cert_file"], self.config["key_file"]),
-        ).json()
-
-        if "error" in token_response:
-            raise YesError(f"Error in token request: {json.dumps(token_response)}")
+        token_response = self._decode_or_raise_error(
+            requests.post(
+                token_endpoint,
+                data=token_parameters,
+                cert=(self.config["cert_file"], self.config["key_file"]),
+            )
+        )
 
         self.session.access_token = token_response["access_token"]
 
@@ -222,7 +225,9 @@ class YesFlow(ABC):
             return
 
     def _decode_and_validate_id_token(self, id_token_encoded: str) -> Dict:
-        jwks_doc = requests.get(self.session.server_config["jwks_uri"]).json()
+        jwks_doc = self._decode_or_raise_error(
+            requests.get(self.session.server_config["jwks_uri"])
+        )
 
         kid = jwt.get_unverified_header(id_token_encoded)["kid"]
 
@@ -266,33 +271,26 @@ class YesSigningFlow(YesFlow):
 
         check_url = furl(self.urls["service_configuration"])
         check_url.args["iss"] = issuer_url
-        response = requests.get(check_url)
-
-        if response.status_code != 200:
-            raise YesError(response.json()["error_description"])
-
-        service_configuration = response.json()
+        service_configuration = self._decode_or_raise_error(requests.get(check_url))
 
         # issuer is taken from the service configuration document and can differ from the selected one
         self.session.issuer_url = service_configuration["identity"]["iss"]
 
         # from the existing QTSP configurations, select the one we want to use!
-        if "qtsp_id" in self.config:
-            selected_qtsp_id = self.config["qtsp_id"]
-            for qtsp in service_configuration["remote_signature_creation"]:
-                if qtsp["qtsp_id"] == selected_qtsp_id:
-                    self.session.qtsp_config = qtsp
-                    break
-            else:
-                raise YesError(
-                    f"Unable to find QTSP with id '{selected_qtsp_id}'! Please ensure that the configuration value 'qtsp_id' contains a valid QTSP id."
-                )
-        else:
-            # if no ID is provided, we select one QTSP at random
-            self.session.qtsp_config = random.choice(
-                service_configuration["remote_signature_creation"]
+        if not "qtsp_id" in self.config:
+            raise YesError(
+                "Unable to select a QTSP. Please set a 'qtsp_id' key in the configuration to select a QTSP."
             )
-            self.log.warning("Selecting a random QTSP. In a production deployment, please set a 'qtsp_id' key in the configuration to select a QTSP.")
+
+        selected_qtsp_id = self.config["qtsp_id"]
+        for qtsp in service_configuration["remote_signature_creation"]:
+            if qtsp["qtsp_id"] == selected_qtsp_id:
+                self.session.qtsp_config = qtsp
+                break
+        else:
+            raise YesError(
+                f"Unable to find QTSP with id '{selected_qtsp_id}'! Please ensure that the configuration value 'qtsp_id' contains a valid QTSP id."
+            )
 
         self.log.debug(
             f"retrieved service configuration; new issuer url: {self.session.issuer_url}"
@@ -337,23 +335,18 @@ class YesSigningFlow(YesFlow):
             "conformance_level": conformance_level,
         }
 
-        signdoc_response = requests.post(
-            self.session.qtsp_config["signDoc"],
-            headers={
-                "Authorization": f"Bearer {self.session.access_token}",
-                "accept": "*/*",
-            },
-            cert=(self.config["cert_file"], self.config["key_file"]),
-            data=signdoc_data,
+        return self._decode_or_raise_error(
+            requests.post(
+                self.session.qtsp_config["signDoc"],
+                headers={
+                    "Authorization": f"Bearer {self.session.access_token}",
+                    "Accept": "*/*",
+                },
+                cert=(self.config["cert_file"], self.config["key_file"]),
+                json=signdoc_data,
+            ),
+            expected_status=200,
         )
-        signdoc_response_contents = signdoc_response.json()
-        if signdoc_response.status_code != 201:
-            ye = YesOAuthError()
-            ye.oauth_error = signdoc_response_contents["error"]
-            ye.oauth_error_description = signdoc_response_contents["error_description"]
-            raise ye
-
-        return signdoc_response_contents
 
 
 class YesIdentityFlow(YesFlow):
@@ -368,12 +361,9 @@ class YesIdentityFlow(YesFlow):
         """
         check_url = furl(self.urls["issuer_check_callback"])
         check_url.args["iss"] = issuer_url
-        check = requests.get(check_url).status_code
-
-        if check != 204:
-            raise YesInvalidIssuerError(
-                f"Invalid issuer url provided (got status code {check})."
-            )
+        check = self._decode_or_raise_error(
+            requests.get(check_url), expected_status=204, expect_empty=True
+        )
 
         self.session.issuer_url = issuer_url
         self.log.debug(f"validated issuer url {self.session.issuer_url}")
@@ -396,14 +386,14 @@ class YesIdentityFlow(YesFlow):
         return parameters
 
     def send_userinfo_request(self) -> Dict:
-        userinfo_response = requests.get(
-            self.session.server_config["userinfo_endpoint"],
-            headers={
-                "Authorization": f"Bearer {self.session.access_token}",
-                "accept": "*/*",
-            },
-            cert=(self.config["cert_file"], self.config["key_file"]),
-        ).json()
-
-        return userinfo_response
+        return self._decode_or_raise_error(
+            requests.get(
+                self.session.server_config["userinfo_endpoint"],
+                headers={
+                    "Authorization": f"Bearer {self.session.access_token}",
+                    "accept": "*/*",
+                },
+                cert=(self.config["cert_file"], self.config["key_file"]),
+            )
+        )
 

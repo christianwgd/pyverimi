@@ -81,7 +81,7 @@ class YesExample:
         ...
 ```
 
-**Step 4:** Create a yes® session (`yes.YesSession`) and instantiate a yes® identity flow based on it (`yes.YesIdentityFlow`). You need to take care that this session information is persisted across all requests from the user - ideally, store it in the session mechanism provided by your web framework. *Do not store it in a user-accessible place (cookies, URL parameters, etc.)!*
+**Step 4:** Create a yes® session (`yes.YesIdentitySession`) and instantiate a yes® identity flow based on it (`yes.YesIdentityFlow`). You need to take care that this session information is persisted across all requests from the user - ideally, store it in the session mechanism provided by your web framework. *Do not store it in a user-accessible place (cookies, URL parameters, etc.)!*
 
 ```python
 class YesExample:
@@ -90,7 +90,7 @@ class YesExample:
         """
         Starting the yes® flow after the user clicked on the yes® button.
         """
-        yessession = yes.YesSession(claims, request_second_factor=True)
+        yessession = yes.YesIdentitySession(claims, request_second_factor=True)
         cherrypy.session["yes"] = yessession
         yesflow = yes.YesIdentityFlow(yes_configuration, cherrypy.session["yes"])
         ...
@@ -123,7 +123,7 @@ class YesExample:
         """
         Starting the yes® flow after the user clicked on the yes® button.
         """
-        yessession = yes.YesSession(claims, request_second_factor=True)
+        yessession = yes.YesIdentitySession(claims, request_second_factor=True)
         cherrypy.session["yes"] = yessession
         yesflow = yes.YesIdentityFlow(yes_configuration, cherrypy.session["yes"])
         ac_redirect = yesflow.start_yes_flow()
@@ -221,3 +221,8 @@ Got user data in the ID token:
 ```
 
 See the full example in `/examples/simple.py`.
+
+## How to Use (Signing Flow)
+
+Additional configuration parameter: `qtsp_id`.
+

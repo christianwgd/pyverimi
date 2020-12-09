@@ -30,9 +30,13 @@ class YesSession:
     authorization_code: Optional[str]
     access_token: Optional[str]
 
-    def __init__(self, claims, acr_values):
+    def __init__(self, claims, request_second_factor):
         self.claims = claims
-        self.acr_values = acr_values
+        self.acr_values = (
+            ["https://www.yes.com/acrs/online_banking_sca"]
+            if request_second_factor
+            else ["https://www.yes.com/acrs/online_banking"]
+        )
         self.ac_state = secrets.token_urlsafe(16)
         self.pkce = PKCE()
         self.oidc_nonce = secrets.token_urlsafe(32)

@@ -1,3 +1,3 @@
 from .errors import *
-from .flow import YesFlow
+from .flow import YesIdentityFlow
 from .session import YesSession

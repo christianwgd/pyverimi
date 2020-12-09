@@ -10,7 +10,7 @@ from .errors import *
 from .session import YesSession
 
 
-class YesFlow:
+class YesIdentityFlow:
     config: Dict
     session: YesSession
     urls: Optional[Dict]

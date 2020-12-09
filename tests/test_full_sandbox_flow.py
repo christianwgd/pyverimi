@@ -92,7 +92,7 @@ def test_simple(yes_sandbox_test_config, username, claims, compare_data):
     claims_req = {"id_token": claims, "userinfo": claims}
     session = yes.YesSession(claims_req, acr_values)
 
-    flow = yes.YesFlow(yes_sandbox_test_config, session)
+    flow = yes.YesIdentityFlow(yes_sandbox_test_config, session)
 
     driver = webdriver.Chrome()
     driver.implicitly_wait(10)  # seconds
@@ -126,7 +126,7 @@ def test_simple(yes_sandbox_test_config, username, claims, compare_data):
 
 def test_user_abort_in_ac(yes_sandbox_test_config):
     session = yes.YesSession({}, [])
-    flow = yes.YesFlow(yes_sandbox_test_config, session)
+    flow = yes.YesIdentityFlow(yes_sandbox_test_config, session)
     ac_start = furl(flow.start_yes_flow())
 
     with pytest.raises(yes.YesUserCanceledError):
@@ -143,7 +143,7 @@ def test_user_abort_in_ac(yes_sandbox_test_config):
 
 def test_account_selection(yes_sandbox_test_config):
     session = yes.YesSession({}, [])
-    flow = yes.YesFlow(yes_sandbox_test_config, session)
+    flow = yes.YesIdentityFlow(yes_sandbox_test_config, session)
     ac_start = furl(flow.start_yes_flow())
 
     idp_uri = flow.handle_ac_callback(
@@ -171,7 +171,7 @@ def test_user_abort_in_oidc(yes_sandbox_test_config):
     acr_values = ["https://www.yes.com/acrs/online_banking_sca"]
     session = yes.YesSession({}, acr_values)
 
-    flow = yes.YesFlow(yes_sandbox_test_config, session)
+    flow = yes.YesIdentityFlow(yes_sandbox_test_config, session)
 
     driver = webdriver.Chrome()
     driver.implicitly_wait(10)  # seconds

@@ -1,7 +1,7 @@
-import yes
-import cherrypy
 import json
 
+import cherrypy
+import yes
 
 yes_configuration = {
     "environment": "sandbox",  # or production
@@ -67,7 +67,7 @@ class YesExample:
     def oidccb(self, iss, code=None, error=None, error_description=None):
         """
         OpenID Connect callback endpoint. The user arrives here after going
-        through the authentication/authorizaton steps at the bank
+        through the authentication/authorizaton steps at the bank.
 
         Note that the URL of this endpoint has to be registered with yes for
         your client. 

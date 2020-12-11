@@ -236,7 +236,7 @@ yes_configuration = {
 ...
 ```
 
-**Step 1:** Prepare document to be signed and calculate the hash values.
+**Step 1:** Prepare document to be signed and calculate the hash values. See the [yes® Relying Party Developer Guide](https://yes.com/docs/rp-devguide/latestversion/) for details.
 
 ```python
 document_digests = [
@@ -260,7 +260,7 @@ session = yes.YesSigningSession(hash_algorithm_oid, document_digests)
 flow = yes.YesSigningFlow(yes_sandbox_test_config, session)
 ```
 
-**Proceed as above**
+**.. proceed as above ...**
 
 **Final Step:** Retrieve the access token and create the signatures:
 

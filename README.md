@@ -7,7 +7,7 @@ Please refer to the [yes® Relying Party Developer Guide](https://yes.com/docs/r
 ## Implementation Status
 
  * ☒ [yes® Identity Flow](https://yes.com/docs/rp-devguide/latestversion/IDENTITY/) 
- * ☐ [yes® Signing Flow](https://yes.com/docs/rp-devguide/latestversion/QES/) for Qualified Electronic Signatures
+ * ☒ [yes® Signing Flow](https://yes.com/docs/rp-devguide/latestversion/QES/) for Qualified Electronic Signatures
  * ☐ future yes® Flows (AIS, PIS, etc.)
 
 ## How to Use (Identity Flow)

@@ -1,5 +1,6 @@
 import json
 import logging
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 
 import jwt
@@ -7,23 +8,27 @@ import requests
 from furl import furl
 
 from .errors import *
-from .session import YesSession
+from .session import YesIdentitySession, YesSession, YesSigningSession
 
 
-class YesIdentityFlow:
+class YesFlow(ABC):
     config: Dict
     session: YesSession
     urls: Optional[Dict]
     log = None
 
+    SERVER_CONFIGURATION_SUFFIX: str
+
     DEFAULT_URLS = {
         "production": {
             "account_chooser": "https://accounts.yes.com/",
             "issuer_check_callback": "https://accounts.yes.com/idp/",
+            "service_configuration": "https://api.yes.com/service-configuration/v1/",
         },
         "sandbox": {
             "account_chooser": "https://accounts.sandbox.yes.com/",
             "issuer_check_callback": "https://accounts.sandbox.yes.com/idp/",
+            "service_configuration": "https://api.sandbox.yes.com/service-configuration/v1/",
         },
     }
 
@@ -45,6 +50,24 @@ class YesIdentityFlow:
         account chooser. User needs to be redirected to this URL.
         """
         return self._get_account_chooser_url()
+
+    def _decode_or_raise_error(self, response, expected_status=200, expect_empty=False):
+        if not expect_empty:
+            try:
+                response_contents = response.json()
+            except Exception:
+                raise YesError(
+                    f"Unable to JSON decode response; status code={response.status_code}; contents={response.text}."
+                )
+        else:
+            response_contents = response.text
+
+        if response.status_code != expected_status:
+            raise YesError(
+                f"Response status code {response.status_code}, response: {response.text}."
+            )
+
+        return response_contents
 
     def _get_account_chooser_url(self, select_account=False):
         ac_redirect = furl(self.urls["account_chooser"])
@@ -71,7 +94,7 @@ class YesIdentityFlow:
         )
 
         self._check_issuer(issuer_url)
-        self._retrieve_oidc_configuration()
+        self._retrieve_server_configuration()
         authz_parameters = self._assemble_authz_parameters()
         if self.config.get("authz_style", "pushed") == "pushed":
             authz_url = self._prepare_authz_url_pushed(authz_parameters)
@@ -80,52 +103,26 @@ class YesIdentityFlow:
 
         return authz_url
 
+    @abstractmethod
     def _check_issuer(self, issuer_url):
-        """
-        Ensure that the issuer_url points to a valid issuer in the yes®
-        ecosystem.
-        """
-        check_url = furl(self.urls["issuer_check_callback"])
-        check_url.args["iss"] = issuer_url
-        check = requests.get(check_url).status_code
+        pass
 
-        if check != 204:
-            raise YesInvalidIssuerError(
-                f"Invalid issuer url provided (got status code {check})."
-            )
-
-        self.session.issuer_url = issuer_url
-        self.log.debug(f"validated issuer url {self.session.issuer_url}")
-
-    def _retrieve_oidc_configuration(self):
+    def _retrieve_server_configuration(self):
         """
-        Retrieve the ODIC configuration from the discovered OIDC issuer.
+        Retrieve the ODIC/OAuth configuration from the discovered OIDC issuer.
         """
-        wkdoc = requests.get(
-            self.session.issuer_url + "/.well-known/openid-configuration"
-        ).json()
+        wkdoc = self._decode_or_raise_error(
+            requests.get(self.session.issuer_url + self.SERVER_CONFIGURATION_SUFFIX)
+        )
 
         if wkdoc["issuer"] != self.session.issuer_url:
             raise Exception("Illegal issuer url in openid configuration document!")
 
-        self.session.oidc_config = wkdoc
+        self.session.server_config = wkdoc
 
+    @abstractmethod
     def _assemble_authz_parameters(self) -> Dict:
-        parameters = {
-            "client_id": self.config["client_id"],
-            "redirect_uri": self.config["redirect_uri"],
-            "scope": "openid",
-            "response_type": "code",
-            "code_challenge_method": "S256",
-            "code_challenge": self.session.pkce.challenge,
-            "nonce": self.session.oidc_nonce,
-            "claims": json.dumps(self.session.claims),
-            "acr_values": " ".join(self.session.acr_values),
-        }
-        self.log.debug(
-            f"Prepared authorization request parameters: {json.dumps(parameters)}"
-        )
-        return parameters
+        pass
 
     def _prepare_authz_url_pushed(self, par_ameters: Dict) -> str:
         """
@@ -133,19 +130,22 @@ class YesIdentityFlow:
         Pushed Authorization Requests to send the authorization request in the
         backend. This provides integrity protection for the request contents.
         """
-        par_endpoint = self.session.oidc_config["pushed_authorization_request_endpoint"]
-        par_response = requests.post(
-            par_endpoint,
-            data=par_ameters,
-            cert=(self.config["cert_file"], self.config["key_file"]),
-        ).json()
-        self.log.debug(f"Received PAR response: {json.dumps(par_response)}")
+        par_endpoint = self.session.server_config[
+            "pushed_authorization_request_endpoint"
+        ]
+        par_response_contents = self._decode_or_raise_error(
+            requests.post(
+                par_endpoint,
+                data=par_ameters,
+                cert=(self.config["cert_file"], self.config["key_file"]),
+            ),
+            expected_status=201,
+        )
 
-        if "error" in par_response:
-            raise YesError(f"Error during PAR request: {json.dumps(par_response)}")
+        self.log.debug(f"Received PAR response: {json.dumps(par_response_contents)}")
 
-        redirect_uri = furl(self.session.oidc_config["authorization_endpoint"])
-        redirect_uri.args["request_uri"] = par_response["request_uri"]
+        redirect_uri = furl(self.session.server_config["authorization_endpoint"])
+        redirect_uri.args["request_uri"] = par_response_contents["request_uri"]
         redirect_uri.args["client_id"] = self.config["client_id"]
         self.log.debug(
             f"yes® OIDC provider pushed auth request redirection to {str(redirect_uri)}."
@@ -156,7 +156,7 @@ class YesIdentityFlow:
         """
         Assemble an RFC6749-style OAuth authorization request.
         """
-        redirect_uri = furl(self.session.oidc_config["authorization_endpoint"])
+        redirect_uri = furl(self.session.server_config["authorization_endpoint"])
         redirect_uri.args.update(parameters)
         self.log.debug(
             f"yes® OIDC provider traditional auth request redirection to {str(redirect_uri)}."
@@ -194,12 +194,12 @@ class YesIdentityFlow:
         # Store the code for later!
         self.session.authorization_code = code
 
-    def send_token_request(self) -> Dict:
+    def send_token_request(self) -> Optional[Dict]:
         """
         Send the token request to the discovered issuer's token endpoint.
         """
 
-        token_endpoint = self.session.oidc_config["token_endpoint"]
+        token_endpoint = self.session.server_config["token_endpoint"]
         token_parameters = {
             "client_id": self.config["client_id"],
             "redirect_uri": self.config["redirect_uri"],
@@ -209,21 +209,25 @@ class YesIdentityFlow:
         }
         self.log.debug(f"Prepared token request: {json.dumps(token_parameters)}")
 
-        token_response = requests.post(
-            token_endpoint,
-            data=token_parameters,
-            cert=(self.config["cert_file"], self.config["key_file"]),
-        ).json()
-
-        if "error" in token_response:
-            raise YesError(f"Error in token request: {json.dumps(token_response)}")
+        token_response = self._decode_or_raise_error(
+            requests.post(
+                token_endpoint,
+                data=token_parameters,
+                cert=(self.config["cert_file"], self.config["key_file"]),
+            )
+        )
 
         self.session.access_token = token_response["access_token"]
 
-        return self._decode_and_validate_id_token(token_response["id_token"])
+        if "id_token" in token_response:
+            return self._decode_and_validate_id_token(token_response["id_token"])
+        else:
+            return
 
     def _decode_and_validate_id_token(self, id_token_encoded: str) -> Dict:
-        jwks_doc = requests.get(self.session.oidc_config["jwks_uri"]).json()
+        jwks_doc = self._decode_or_raise_error(
+            requests.get(self.session.server_config["jwks_uri"])
+        )
 
         kid = jwt.get_unverified_header(id_token_encoded)["kid"]
 
@@ -238,7 +242,7 @@ class YesIdentityFlow:
             id_token_encoded,
             key=key,
             algorithms=["RS256"],
-            issuer=self.session.oidc_config["issuer"],
+            issuer=self.session.server_config["issuer"],
             audience=self.config["client_id"],
         )
 
@@ -252,15 +256,144 @@ class YesIdentityFlow:
 
         return id_token
 
-    def send_userinfo_request(self) -> Dict:
-        userinfo_response = requests.get(
-            self.session.oidc_config["userinfo_endpoint"],
-            headers={
-                "Authorization": f"Bearer {self.session.access_token}",
-                "accept": "*/*",
-            },
-            cert=(self.config["cert_file"], self.config["key_file"]),
-        ).json()
 
-        return userinfo_response
+class YesSigningFlow(YesFlow):
+    session: YesSigningSession
+    SERVER_CONFIGURATION_SUFFIX = "/.well-known/oauth-authorization-server"
+    CREDENTIAL_ID = "qes_eidas"
+    PROFILE = "http://uri.etsi.org/19432/v1.1.1#/creationprofile#"
+
+    def _check_issuer(self, issuer_url):
+        """
+        Ensure that the issuer_url points to a valid issuer in the yes®
+        ecosystem by retrieving the service configuration.
+        """
+
+        check_url = furl(self.urls["service_configuration"])
+        check_url.args["iss"] = issuer_url
+        service_configuration = self._decode_or_raise_error(requests.get(check_url))
+
+        # issuer is taken from the service configuration document and can differ from the selected one
+        self.session.issuer_url = service_configuration["identity"]["iss"]
+
+        # from the existing QTSP configurations, select the one we want to use!
+        if not "qtsp_id" in self.config:
+            raise YesError(
+                "Unable to select a QTSP. Please set a 'qtsp_id' key in the configuration to select a QTSP."
+            )
+
+        selected_qtsp_id = self.config["qtsp_id"]
+        for qtsp in service_configuration["remote_signature_creation"]:
+            if qtsp["qtsp_id"] == selected_qtsp_id:
+                self.session.qtsp_config = qtsp
+                break
+        else:
+            raise YesError(
+                f"Unable to find QTSP with id '{selected_qtsp_id}'! Please ensure that the configuration value 'qtsp_id' contains a valid QTSP id."
+            )
+
+        self.log.debug(
+            f"retrieved service configuration; new issuer url: {self.session.issuer_url}"
+        )
+
+    def _assemble_authz_parameters(self) -> Dict:
+        authorization_details = [
+            {
+                "type": "sign",
+                "locations": [self.session.qtsp_config["qtsp_id"]],
+                "credentialID": self.CREDENTIAL_ID,
+                "documentDigests": self.session.document_digests,
+                "hashAlgorithmOID": self.session.hash_algorithm_oid,
+            }
+        ]
+        parameters = {
+            "client_id": self.config["client_id"],
+            "redirect_uri": self.config["redirect_uri"],
+            "response_type": "code",
+            "code_challenge_method": "S256",
+            "code_challenge": self.session.pkce.challenge,
+            "authorization_details": json.dumps(authorization_details),
+        }
+        self.log.debug(
+            f"Prepared authorization request parameters: {json.dumps(parameters)}"
+        )
+        return parameters
+
+    def create_signatures(
+        self, signature_format: str = "P", conformance_level: str = "AdES-B-T"
+    ) -> Dict:
+
+        signdoc_data = {
+            "SAD": self.session.access_token,
+            "credentialID": self.CREDENTIAL_ID,
+            "documentDigests": {
+                "hashes": list(doc["hash"] for doc in self.session.document_digests),
+                "hashAlgorithmOID": self.session.hash_algorithm_oid,
+            },
+            "profile": self.PROFILE,
+            "signature_format": signature_format,
+            "conformance_level": conformance_level,
+        }
+
+        return self._decode_or_raise_error(
+            requests.post(
+                self.session.qtsp_config["signDoc"],
+                headers={
+                    "Authorization": f"Bearer {self.session.access_token}",
+                    "Accept": "*/*",
+                },
+                cert=(self.config["cert_file"], self.config["key_file"]),
+                json=signdoc_data,
+            ),
+            expected_status=200,
+        )
+
+
+class YesIdentityFlow(YesFlow):
+    session: YesIdentitySession
+
+    SERVER_CONFIGURATION_SUFFIX = "/.well-known/openid-configuration"
+
+    def _check_issuer(self, issuer_url):
+        """
+        Ensure that the issuer_url points to a valid issuer in the yes®
+        ecosystem by checking with the account chooser.
+        """
+        check_url = furl(self.urls["issuer_check_callback"])
+        check_url.args["iss"] = issuer_url
+        check = self._decode_or_raise_error(
+            requests.get(check_url), expected_status=204, expect_empty=True
+        )
+
+        self.session.issuer_url = issuer_url
+        self.log.debug(f"validated issuer url {self.session.issuer_url}")
+
+    def _assemble_authz_parameters(self) -> Dict:
+        parameters = {
+            "client_id": self.config["client_id"],
+            "redirect_uri": self.config["redirect_uri"],
+            "scope": "openid",
+            "response_type": "code",
+            "code_challenge_method": "S256",
+            "code_challenge": self.session.pkce.challenge,
+            "nonce": self.session.oidc_nonce,
+            "claims": json.dumps(self.session.claims),
+            "acr_values": " ".join(self.session.acr_values),
+        }
+        self.log.debug(
+            f"Prepared authorization request parameters: {json.dumps(parameters)}"
+        )
+        return parameters
+
+    def send_userinfo_request(self) -> Dict:
+        return self._decode_or_raise_error(
+            requests.get(
+                self.session.server_config["userinfo_endpoint"],
+                headers={
+                    "Authorization": f"Bearer {self.session.access_token}",
+                    "accept": "*/*",
+                },
+                cert=(self.config["cert_file"], self.config["key_file"]),
+            )
+        )
 

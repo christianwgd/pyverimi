@@ -33,7 +33,7 @@ class YesExample:
         """
         Starting the yes® flow after the user clicked on the yes® button.
         """
-        yessession = yes.YesSession(claims, request_second_factor=True)
+        yessession = yes.YesIdentitySession(claims, request_second_factor=True)
         cherrypy.session["yes"] = yessession
         yesflow = yes.YesIdentityFlow(yes_configuration, cherrypy.session["yes"])
         ac_redirect = yesflow.start_yes_flow()
@@ -42,7 +42,7 @@ class YesExample:
         raise cherrypy.HTTPRedirect(ac_redirect)
 
     @cherrypy.expose
-    def accb(self, state, issuer_url=None, error=None):
+    def accb(self, state, issuer_url=None, error=None, selected_bic=None):
         """
         Account chooser callback. The user arrives here after selecting a bank.
 

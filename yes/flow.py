@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -7,6 +8,7 @@ import jwt
 import requests
 from furl import furl
 
+from .documents import SigningDocument
 from .errors import *
 from .session import YesIdentitySession, YesSession, YesSigningSession
 
@@ -34,6 +36,7 @@ class YesFlow(ABC):
 
     def __init__(self, config: Dict, session: YesSession):
         self.config = config
+        self.cert_config = (self.config["cert_file"], self.config["key_file"])
         self.session = session
         self.log = logging.getLogger("yes")
 
@@ -57,14 +60,16 @@ class YesFlow(ABC):
                 response_contents = response.json()
             except Exception:
                 raise YesError(
-                    f"Unable to JSON decode response; status code={response.status_code}; contents={response.text}."
+                    f"Unable to JSON decode response; status code={response.status_code}; contents='{response.text}'.\n"
+                    f"Response from URL: {response.url}\n"
+                    f"Request headers: {response.request.headers!r}\nRequest body: {response.request.body!r}"
                 )
         else:
             response_contents = response.text
 
         if response.status_code != expected_status:
             raise YesError(
-                f"Response status code {response.status_code}, response: {response.text}."
+                f"Response status code {response.status_code}, response: '{response.text}'."
             )
 
         return response_contents
@@ -137,7 +142,7 @@ class YesFlow(ABC):
             requests.post(
                 par_endpoint,
                 data=par_ameters,
-                cert=(self.config["cert_file"], self.config["key_file"]),
+                cert=self.cert_config,
             ),
             expected_status=201,
         )
@@ -171,7 +176,9 @@ class YesFlow(ABC):
         error_description: Optional[str] = None,
     ):
         if iss != self.session.issuer_url:
-            raise YesError("Mix-up Attack detected: illegal issuer URL.")
+            raise YesError(
+                f"Mix-up Attack detected: illegal issuer URL. Expected '{self.session.issuer_url}', but received '{iss}'."
+            )
 
         self.log.debug("Accepted OIDC callback (authorization response).")
 
@@ -213,7 +220,7 @@ class YesFlow(ABC):
             requests.post(
                 token_endpoint,
                 data=token_parameters,
-                cert=(self.config["cert_file"], self.config["key_file"]),
+                cert=self.cert_config,
             )
         )
 
@@ -272,7 +279,7 @@ class YesSigningFlow(YesFlow):
         check_url = furl(self.urls["service_configuration"])
         check_url.args["iss"] = issuer_url
         service_configuration = self._decode_or_raise_error(requests.get(check_url))
-
+        
         # issuer is taken from the service configuration document and can differ from the selected one
         self.session.issuer_url = service_configuration["identity"]["iss"]
 
@@ -288,8 +295,12 @@ class YesSigningFlow(YesFlow):
                 self.session.qtsp_config = qtsp
                 break
         else:
+            available_qtsp_ids = [
+                qtsp["qtsp_id"]
+                for qtsp in service_configuration["remote_signature_creation"]
+            ]
             raise YesError(
-                f"Unable to find QTSP with id '{selected_qtsp_id}'! Please ensure that the configuration value 'qtsp_id' contains a valid QTSP id."
+                f"Unable to find QTSP with id '{selected_qtsp_id}'! Available QTSP IDs: {', '.join(available_qtsp_ids)} Please ensure that the configuration value 'qtsp_id' contains a valid QTSP id."
             )
 
         self.log.debug(
@@ -297,56 +308,86 @@ class YesSigningFlow(YesFlow):
         )
 
     def _assemble_authz_parameters(self) -> Dict:
+        document_digests = list(
+            doc.get_authz_details() for doc in self.session.documents
+        )
+
         authorization_details = [
             {
                 "type": "sign",
                 "locations": [self.session.qtsp_config["qtsp_id"]],
                 "credentialID": self.CREDENTIAL_ID,
-                "documentDigests": self.session.document_digests,
-                "hashAlgorithmOID": self.session.hash_algorithm_oid,
+                "documentDigests": document_digests,
+                "hashAlgorithmOID": self.session.hash_algorithm.oid,
             }
         ]
+
+        if len(self.session.identity_assurance_claims):
+            #authorization_details[0]["claims"] = {
+            authorization_details[0]["identity_assurance_claims"] = {
+                claim: None for claim in self.session.identity_assurance_claims
+            }
+
         parameters = {
             "client_id": self.config["client_id"],
             "redirect_uri": self.config["redirect_uri"],
             "response_type": "code",
+            # "scope": "",
             "code_challenge_method": "S256",
             "code_challenge": self.session.pkce.challenge,
             "authorization_details": json.dumps(authorization_details),
         }
+        print(parameters)
         self.log.debug(
             f"Prepared authorization request parameters: {json.dumps(parameters)}"
         )
         return parameters
 
     def create_signatures(
-        self, signature_format: str = "P", conformance_level: str = "AdES-B-T"
+        self,
+        signature_format: Optional[str] = "P",
+        conformance_level: Optional[str] = "AdES-B-LT",
+        documents: Optional[List[SigningDocument]] = None,
     ) -> Dict:
+
+        if documents is None:
+            documents = self.session.documents
+
+        hashes_to_sign = list(doc.get_hash() for doc in documents)
 
         signdoc_data = {
             "SAD": self.session.access_token,
             "credentialID": self.CREDENTIAL_ID,
             "documentDigests": {
-                "hashes": list(doc["hash"] for doc in self.session.document_digests),
-                "hashAlgorithmOID": self.session.hash_algorithm_oid,
+                "hashes": hashes_to_sign,
+                "hashAlgorithmOID": self.session.hash_algorithm.oid,
             },
             "profile": self.PROFILE,
             "signature_format": signature_format,
             "conformance_level": conformance_level,
         }
 
-        return self._decode_or_raise_error(
-            requests.post(
+        response = self._decode_or_raise_error(
+            resp := requests.post(
                 self.session.qtsp_config["signDoc"],
                 headers={
-                    "Authorization": f"Bearer {self.session.access_token}",
+                    # "Authorization": f"Bearer {self.session.access_token}",
                     "Accept": "*/*",
                 },
-                cert=(self.config["cert_file"], self.config["key_file"]),
+                cert=self.cert_config,
                 json=signdoc_data,
             ),
             expected_status=200,
         )
+
+        self._debug_signdoc_response = resp
+
+        assert len(response["SignatureObject"]) == len(documents)
+        for doc, signature_base64 in zip(documents, response["SignatureObject"]):
+            signature = base64.decodebytes(signature_base64.encode("ascii"))
+            doc.process_signature(signature, response.get("revocationInfo", None))
+
+        return response
 
 
 class YesIdentityFlow(YesFlow):
@@ -393,7 +434,7 @@ class YesIdentityFlow(YesFlow):
                     "Authorization": f"Bearer {self.session.access_token}",
                     "accept": "*/*",
                 },
-                cert=(self.config["cert_file"], self.config["key_file"]),
+                cert=self.cert_config,
             )
         )
 

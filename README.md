@@ -2,19 +2,19 @@
 
 This library implements a complete yes® relying party / client flow in Python.
 
-Please refer to the [yes® Relying Party Developer Guide](https://yes.com/docs/rp-devguide/latestversion/) for a description of the yes® flows.
+Please refer to the [yes® Relying Party Developer Guide](https://www.yes.com/docs/rp-devguide/latest/index.html) for a description of the yes® flows.
 
 ## Implementation Status
 
- * ☒ [yes® Identity Flow](https://yes.com/docs/rp-devguide/latestversion/IDENTITY/) 
- * ☒ [yes® Signing Flow](https://yes.com/docs/rp-devguide/latestversion/QES/) for Qualified Electronic Signatures
+ * ☒ [yes® Identity Flow](https://yes.com/docs/rp-devguide/latest/IDENTITY/index.html) 
+ * ☒ [yes® Signing Flow](https://yes.com/docs/rp-devguide/latest/QES/index.html) for Qualified Electronic Signatures
  * ☐ future yes® Flows (AIS, PIS, etc.)
 
 ## How to Use (Identity Flow)
 
 A stand-alone minimal example is provided in [`simple_identity.py`](examples/simple_identity.py).
 
-**Step 1:** Acquire credentials to access the yes® ecosystem as described [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/). Note that for testing, you can use the Sandbox Demo Client credentials published [here](https://yes.com/docs/rp-devguide/latestversion/ONBOARDING/#_sandbox_demo_client).
+**Step 1:** Acquire credentials to access the yes® ecosystem as described [here](https://www.yes.com/docs/rp-devguide/latest/ONBOARDING/index.html). Note that for testing, you can use the Sandbox Demo Client credentials published [here](https://www.yes.com/docs/rp-devguide/latest/ONBOARDING/index.html#_sandbox_demo_client).
 
 **Step 2:** Put the `client_id`, the paths to the certificate and private key file, and other information into a configuration dictionary.
 
@@ -29,11 +29,11 @@ yes_configuration = {
 
 ```
 
-**Step 3:** Decide which data you want to retrieve from the yes® IDP. See the [respective sections of the developer guide](https://yes.com/docs/rp-devguide/latestversion/IDENTITY/#user_information) for details. If in doubt, request all data in the `id_token` and leave the `userinfo` dictionary empty. 
+**Step 3:** Decide which data you want to retrieve from the yes® IDP. See the [respective sections of the developer guide](https://yes.com/docs/rp-devguide/latest/IDENTITY/index.html#user_information) for details. If in doubt, request all data in the `id_token` and leave the `userinfo` dictionary empty. 
 
 Note that this definition here is in native Python syntax and will be converted to JSON before being sent to the server. 
 
-You also need to decide if you want the user to use their online banking second factor. See [here](https://yes.com/docs/rp-devguide/latestversion/IDENTITY/#acr) for details.
+You also need to decide if you want the user to use their online banking second factor. See [here](https://yes.com/docs/rp-devguide/latest/IDENTITY/index.html#acr) for details.
 
 ```python
 claims = {
@@ -236,7 +236,7 @@ yes_configuration = {
 ...
 ```
 
-**Step 1:** Prepare document to be signed and calculate the hash values. See the [yes® Relying Party Developer Guide](https://yes.com/docs/rp-devguide/latestversion/) for details.
+**Step 1:** Prepare document to be signed and calculate the hash values. See the [yes® Relying Party Developer Guide](https://www.yes.com/docs/rp-devguide/latest/index.html) for details.
 
 ```python
 document_digests = [

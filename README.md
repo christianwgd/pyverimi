@@ -236,35 +236,12 @@ yes_configuration = {
 ...
 ```
 
-**Step 1:** Prepare document to be signed and calculate the hash values. See the [yes® Relying Party Developer Guide](https://www.yes.com/docs/rp-devguide/latest/index.html) for details.
+Please see [`full_signing_flow.py`](examples/full_signing_flow.py) for a signing example.
 
-```python
-document_digests = [
-    {
-        "hash": "sTOgwOm+474gFj0q0x1iSNspKqbcse4IeiqlDg/HWuI=",
-        "label": "Kreditvertrag",
-    },
-    {
-        "hash": "HZQzZmMAIWekfGH0/ZKW1nsdt0xg3H6bZYztgsMTLw0=",
-        "label": "Vertrag Restschuldversicherung",
-    },
-]
+This library can be used to sign the following types of documents:
 
-hash_algorithm_oid = "2.16.840.1.101.3.4.2.1"
-```
+ * Plain-text strings (`yes.TextSigningDocument`)
+ * A default text defined by the QTSP if the QES is only used for identification purposes (QID feature) (`yes.DefaultSigningDocument`)
+ * PDF documents (`PDFSigningDocument`)
 
-**Step 2:** Create and maintain a `YesSigningSession` and create a `YesSigningFlow` based on it.
-
-```python
-session = yes.YesSigningSession(hash_algorithm_oid, document_digests)
-flow = yes.YesSigningFlow(yes_sandbox_test_config, session)
-```
-
-**.. proceed as above ...**
-
-**Final Step:** Retrieve the access token and create the signatures:
-
-```python
-flow.send_token_request()
-sigs = flow.create_signatures()
-```
+Optionally, identity attributes can be embedded into the signature (QESID).

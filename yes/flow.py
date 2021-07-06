@@ -224,6 +224,8 @@ class YesFlow(ABC):
             )
         )
 
+        self._debug_token_response = token_response
+
         self.session.access_token = token_response["access_token"]
 
         if "id_token" in token_response:

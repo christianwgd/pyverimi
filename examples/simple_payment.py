@@ -1,7 +1,21 @@
-import json
-
-import cherrypy
 import yes
+import cherrypy
+import json
+from pathlib import Path
+import sys
+import yaml
+
+yes_configuration = {
+    "environment": "sandbox",  # or production
+    "client_id": "sandbox.yes.com:e85ff3bc-96f8-4ae7-b6b1-894d8dde9ebe",  # provided by yes®
+    "cert_file": "cert.pem",  # see developer guide
+    "key_file": "key.pem",  # see developer guide
+    "redirect_uri": "http://localhost:3000/yes/oidccb",  # exactly as registered with yes®
+}
+
+if len(sys.argv) > 1:
+    with open(sys.argv[1], 'r') as f:
+        yes_configuration = yaml.load(f.read())
 
 claims = {
     "id_token": {
@@ -18,17 +32,20 @@ claims = {
     },
 }
 
-configuration = yes.YesConfiguration.sandbox_test_from_env()
 
 class YesExample:
     @cherrypy.expose
-    def start(self):
+    def start(
+        self, amount, remittance_information, creditor_name, creditor_account_iban
+    ):
         """
         Starting the yes® flow after the user clicked on the yes® button.
         """
-        yessession = yes.YesIdentitySession(claims, request_second_factor=True)
+        yessession = yes.YesPaymentSession(
+            amount, remittance_information, creditor_name, creditor_account_iban
+        )
         cherrypy.session["yes"] = yessession
-        yesflow = yes.YesIdentityFlow(configuration, cherrypy.session["yes"])
+        yesflow = yes.YesPaymentFlow(yes_configuration, cherrypy.session["yes"])
         ac_redirect = yesflow.start_yes_flow()
 
         cherrypy.log(f"Account chooser redirection to {ac_redirect}.")
@@ -42,7 +59,7 @@ class YesExample:
         Note that the URL of this endpoint has to be registered with yes for
         your client. 
         """
-        yesflow = yes.YesIdentityFlow(configuration, cherrypy.session["yes"])
+        yesflow = yes.YesPaymentFlow(yes_configuration, cherrypy.session["yes"])
 
         try:
             authorization_endpoint_uri = yesflow.handle_ac_callback(
@@ -65,7 +82,7 @@ class YesExample:
         Note that the URL of this endpoint has to be registered with yes for
         your client. 
         """
-        yesflow = yes.YesIdentityFlow(configuration, cherrypy.session["yes"])
+        yesflow = yes.YesPaymentFlow(yes_configuration, cherrypy.session["yes"])
 
         try:
             yesflow.handle_oidc_callback(iss, code, error, error_description)
@@ -92,16 +109,18 @@ class YesExample:
 class Root:
     @cherrypy.expose
     def default(self):
-        return (
-            "Identify with your bank!<br>"
-            '<form action="/yes/start"><button type="submit">yes®</button></form>'
-        )
+        return ""
 
+
+PATH = Path(__file__).parent.resolve() / "static"
 
 cherrpy_config = {
     "global": {"server.socket_port": 3000},
     "/": {
         "tools.sessions.on": "True",
+        "tools.staticdir.on": True,
+        "tools.staticdir.dir": PATH,
+        "tools.staticdir.index": "payment.html",
         "log.access_file": "access.log",
         "log.error_file": "error.log",
     },

@@ -12,6 +12,9 @@ from .errors import YesError
 
 @dataclass
 class PKCE:
+    """
+    Class for managing PKCE (RFC7636). Automatically used by the yes flows.
+    """
     verifier: str
     challenge: str
 
@@ -42,11 +45,41 @@ class YesSession(ABC):
 
 
 class YesIdentitySession(YesSession):
+    """A session object for an identity flow."""
     claims: Dict
     acr_values: List
     oidc_nonce: str
 
-    def __init__(self, claims, request_second_factor):
+    def __init__(self, claims: Dict[str, Dict], request_second_factor:bool):
+        """
+        Example:
+            `claims` defines which claims are requested, using which verification level,
+            and using which transport method.
+
+            See https://yes.com/docs/rp-devguide/latest/IDENTITY/index.html#_requesting_claims for details on the syntax and semantics.
+
+            Example:
+            ```
+            claims = {
+                "id_token": {
+                    "verified_claims": {
+                        "claims": {"given_name": None,},
+                        "verification": {"trust_framework": None},
+                    }
+                },
+                "userinfo": {
+                    "verified_claims": {
+                        "claims": {"family_name": None,},
+                        "verification": {"trust_framework": None},
+                    }
+                },
+            }
+            ```
+
+        Args:
+            claims (Dict[str, Dict]): Define the claims that are to be requested from the IDP and how they are transported.
+            request_second_factor (bool): Demand the use of the second factor from the user.
+        """
         YesSession.__init__(self)
         self.claims = claims
         self.acr_values = (
@@ -58,6 +91,7 @@ class YesIdentitySession(YesSession):
 
 
 class YesSigningSession(YesSession):
+    """A session object for a signing flow."""
     qtsp_config: Optional[Dict]
     hash_algorithm: Hash
     documents: List[SigningDocument]
@@ -69,6 +103,12 @@ class YesSigningSession(YesSession):
         identity_assurance_claims: List[str] = [],
         hash_algorithm: Hash = HASH_ALGORITHMS["SHA-256"],
     ):
+        """
+        Args:
+            documents (List[SigningDocument]): List of `yes.SigningDocument` objects to be signed.
+            identity_assurance_claims (List[str], optional): Optional list of claims to be included in the certificate, see yes® documentation on QID/QESID. Defaults to [].
+            hash_algorithm (Hash, optional): The hash algorithm to use for signing the document. Defaults to HASH_ALGORITHMS["SHA-256"].
+        """
         YesSession.__init__(self)
         self.hash_algorithm = hash_algorithm
         self.identity_assurance_claims = identity_assurance_claims
@@ -78,7 +118,7 @@ class YesSigningSession(YesSession):
                 raise Exception(
                     f"Please provide documents as yes.SigningDocument instances, not {document!r}."
                 )
-            document.set_session(self)
+            document._set_session(self)
             self.documents.append(document)
 
 

@@ -1,45 +1,9 @@
-import yes
 import cherrypy
+import yes
 from cherrypy.lib import static
 
-import os
-import pathlib
-import tempfile
 
-
-def yes_configuration():
-    YES_SANDBOX_TEST_CERT = pathlib.Path(
-        os.environ.get("YES_SANDBOX_TEST_CERT", "yes_sandbox_test_cert.pem")
-    )
-    YES_SANDBOX_TEST_KEY = pathlib.Path(
-        os.environ.get("YES_SANDBOX_TEST_KEY", "yes_sandbox_test_key.pem")
-    )
-    YES_SANDBOX_TEST_CLIENT_ID = os.environ.get(
-        "YES_SANDBOX_TEST_CLIENT_ID",
-        "sandbox.yes.com:e85ff3bc-96f8-4ae7-b6b1-894d8dde9ebe",
-    )
-    YES_SANDBOX_TEST_REDIRECT_URI = os.environ.get(
-        "YES_SANDBOX_TEST_REDIRECT_URI", "http://localhost:3000/yes/oidccb"
-    )
-    if not YES_SANDBOX_TEST_CERT.exists() or not YES_SANDBOX_TEST_KEY.exists():
-        raise Exception(
-            f"This example requires access to the yes® sandbox using the client id "
-            f"{YES_SANDBOX_TEST_CLIENT_ID}. Please provide a "
-            f"certificate and private key pair at the following locations: "
-            f"{YES_SANDBOX_TEST_CERT} / {YES_SANDBOX_TEST_KEY}. These files are "
-            f"available in the yes developer documentation at https://yes.com/docs . "
-            f"To use a different client id or certificate/key locations, please set the "
-            f"environment variables YES_SANDBOX_TEST_CLIENT_ID, YES_SANDBOX_TEST_CERT, "
-            f"YES_SANDBOX_TEST_KEY, and/or YES_SANDBOX_TEST_REDIRECT_URI."
-        )
-    return {
-        "client_id": YES_SANDBOX_TEST_CLIENT_ID,
-        "cert_file": str(YES_SANDBOX_TEST_CERT),
-        "key_file": str(YES_SANDBOX_TEST_KEY),
-        "redirect_uri": YES_SANDBOX_TEST_REDIRECT_URI,
-        "environment": "sandbox",
-        "qtsp_id": "sp:sandbox.yes.com:85ac6820-8518-4aa1-ba85-de4307175b64"
-    }
+configuration = yes.YesConfiguration.sandbox_test_from_env()
 
 
 class YesExample:
@@ -52,7 +16,7 @@ class YesExample:
 
         yessession = yes.YesSigningSession(documents)
         cherrypy.session["yes"] = yessession
-        yesflow = yes.YesSigningFlow(yes_configuration(), cherrypy.session["yes"])
+        yesflow = yes.YesSigningFlow(configuration, cherrypy.session["yes"])
         ac_redirect = yesflow.start_yes_flow()
 
         cherrypy.log(f"Account chooser redirection to {ac_redirect}.")
@@ -67,7 +31,7 @@ class YesExample:
         your client. 
         """
         yessession = cherrypy.session["yes"]
-        yesflow = yes.YesSigningFlow(yes_configuration(), yessession)
+        yesflow = yes.YesSigningFlow(configuration, yessession)
 
         try:
             authorization_endpoint_uri = yesflow.handle_ac_callback(
@@ -91,7 +55,7 @@ class YesExample:
         your client. 
         """
         yessession = cherrypy.session["yes"]
-        yesflow = yes.YesSigningFlow(yes_configuration(), yessession)
+        yesflow = yes.YesSigningFlow(configuration, yessession)
 
         try:
             yesflow.handle_oidc_callback(iss, code, error, error_description)

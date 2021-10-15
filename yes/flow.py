@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Dict, List, Optional, Tuple
 
 import jwt
@@ -17,46 +17,48 @@ from .session import (
     YesSigningSession,
     YesPaymentSession,
 )
+from .configuration import YesAuthzStyle, YesConfiguration, YesEnvironment
 
 
 class YesFlow(ABC):
-    config: Dict
+    """Base class for all yes® flows.
+    """
+
+    config: YesConfiguration
     session: YesSession
     urls: Optional[Dict]
     log = None
 
     OAUTH_CONFIGURATION_SUFFIX: str
 
-    AUTHZ_STYLE_PUSHED = "pushed"
-    AUTHZ_STYLE_FRONTEND = "frontend"
-
-    DEFAULT_AUTHZ_STYLE = AUTHZ_STYLE_PUSHED
-
     DEFAULT_URLS = {
-        "production": {
+        YesEnvironment.PRODUCTION: {
             "account_chooser": "https://accounts.yes.com/",
             "issuer_check_callback": "https://accounts.yes.com/idp/",
             "service_configuration": "https://api.yes.com/service-configuration/v1/",
         },
-        "sandbox": {
+        YesEnvironment.SANDBOX: {
             "account_chooser": "https://accounts.sandbox.yes.com/",
             "issuer_check_callback": "https://accounts.sandbox.yes.com/idp/",
             "service_configuration": "https://api.sandbox.yes.com/service-configuration/v1/",
         },
     }
 
-    def __init__(self, config: Dict, session: YesSession):
+    def __init__(self, config: YesConfiguration, session: YesSession):
+        """
+        Args:
+            config (YesConfiguration): Configuration defining the details of the flow. 
+            session (YesSession): [description]
+
+        Raises:
+            Exception: [description]
+        """
         self.config = config
-        self.cert_config = (self.config["cert_file"], self.config["key_file"])
+        self.cert_config = (self.config.cert_file, self.config.key_file)
         self.session = session
         self.log = logging.getLogger("yes")
 
-        try:
-            self.urls = self.DEFAULT_URLS[config["environment"]]
-        except KeyError:
-            raise Exception(
-                f"configuration setting 'environment' MUST be one of {', '.join(self.DEFAULT_URLS.keys())}"
-            )
+        self.urls = self.DEFAULT_URLS[config.environment]
 
     def start_yes_flow(self) -> str:
         """
@@ -92,15 +94,35 @@ class YesFlow(ABC):
 
     def _get_account_chooser_url(self, select_account=False):
         ac_redirect = furl(self.urls["account_chooser"])
-        ac_redirect.args["client_id"] = self.config["client_id"]
+        ac_redirect.args["client_id"] = self.config.client_id
         ac_redirect.args["state"] = self.session.ac_state
         if select_account:
             ac_redirect.args["prompt"] = "select_account"
         return str(ac_redirect)
 
     def handle_ac_callback(
-        self, state: str, issuer_url: Optional[str] = None, error: Optional[str] = None,
+        self, state: str, issuer_url: Optional[str] = None, error: Optional[str] = None, selected_bic: str = None
     ) -> str:
+        """Second step in the yes® flow. The user is being redirected from the
+        yes® account chooser to your registered account chooser redirect URI.
+        This function needs to be called to handle the result.
+
+        It returns the URL at the IDP to which the user then must be redirected.
+
+        Args: 
+            state (str): passed from the redirection URI
+            issuer_url (Optional[str], optional): passed from the redirection URI
+            error (Optional[str], optional): used when an error occured
+            selected_bic (Optional[str], optional): not used, but returned from the yes® account chooser
+
+        Raises: 
+            YesError: General error, the flow should be aborted and restarted.
+            YesUserCanceledError: The user pressed on 'cancel'
+            YesUnknownIssuerError: The user's selected bank is not available.
+
+        Returns: 
+            str: The authorization URL to which the user's browser must now be redirected.
+        """
         if state != self.session.ac_state:
             raise YesError("Invalid account chooser state.")
         elif error == "canceled":
@@ -117,7 +139,7 @@ class YesFlow(ABC):
         self._check_issuer(issuer_url)
         self._retrieve_oauth_configuration()
         authz_parameters = self._encode_authz_parameters()
-        if self.config.get("authz_style", self.DEFAULT_AUTHZ_STYLE) == self.AUTHZ_STYLE_PUSHED:
+        if self.config.authz_style == YesAuthzStyle.PUSHED:
             authz_url = self._prepare_authz_url_pushed(authz_parameters)
         else:
             authz_url = self._prepare_authz_url_traditional(authz_parameters)
@@ -157,8 +179,8 @@ class YesFlow(ABC):
 
     def _assemble_authz_parameters(self) -> Dict:
         parameters = {
-            "client_id": self.config["client_id"],
-            "redirect_uri": self.config["redirect_uri"],
+            "client_id": self.config.client_id,
+            "redirect_uri": self.config.redirect_uri,
             "response_type": "code",
             "code_challenge_method": "S256",
             "code_challenge": self.session.pkce.challenge,
@@ -201,7 +223,7 @@ class YesFlow(ABC):
 
         redirect_uri = furl(self.session.oauth_configuration["authorization_endpoint"])
         redirect_uri.args["request_uri"] = par_response_contents["request_uri"]
-        redirect_uri.args["client_id"] = self.config["client_id"]
+        redirect_uri.args["client_id"] = self.config.client_id
         self.log.debug(
             f"yes® OIDC provider pushed auth request redirection to {str(redirect_uri)}."
         )
@@ -225,6 +247,30 @@ class YesFlow(ABC):
         error: Optional[str] = None,
         error_description: Optional[str] = None,
     ):
+        """
+        Third step - OpenID Connect callback endpoint. The user arrives here after going
+        through the authentication/authorizaton steps at the bank.
+
+        Note that the URL of this endpoint has to be registered with yes® for
+        your client. 
+
+        The YesAccountSelectionRequested exception that can be raised by this method 
+        must be handled in a particular way, see below.
+
+        After this callback has been processed, `send_token_request` and then
+        (optionally) `send_userinfo_request` can be used.
+        
+
+        Args:
+            iss (str): OAuth return parameter from URL
+            code (Optional[str], optional): OAuth return parameter from URL. Defaults to None.
+            error (Optional[str], optional): OAuth return parameter from URL. Defaults to None.
+            error_description (Optional[str], optional): OAuth return parameter from URL. Defaults to None.
+
+        Raises:
+            YesError: Generic yes® error. The flow should be aborted and the user should have the option to start again.
+            YesAccountSelectionRequested: The user selected to use another bank. Redirect the user to exception.redirect_uri!
+        """
         if iss != self.session.issuer_url:
             raise YesError(
                 f"Mix-up Attack detected: illegal issuer URL. Expected '{self.session.issuer_url}', but received '{iss}'."
@@ -254,17 +300,22 @@ class YesFlow(ABC):
     def send_token_request(self) -> Optional[Dict]:
         """
         Send the token request to the discovered issuer's token endpoint.
+
+        Returns the decoded and validated ID token data if an identity flow is used.
+
+        Also stores the access token from the IDP/AS. This can then be used in the function
+        `send_userinfo_request` and, for signing flows, in `create_signatures`.
         """
 
         token_endpoint = self.session.oauth_configuration["token_endpoint"]
         token_parameters = {
-            "client_id": self.config["client_id"],
-            "redirect_uri": self.config["redirect_uri"],
+            "client_id": self.config.client_id,
+            "redirect_uri": self.config.redirect_uri,
             "grant_type": "authorization_code",
             "code": self.session.authorization_code,
             "code_verifier": self.session.pkce.verifier,
         }
-        
+
         self.log.debug(f"Prepared token request: {json.dumps(token_parameters)}")
 
         token_response = self._decode_or_raise_error(
@@ -278,8 +329,10 @@ class YesFlow(ABC):
 
         self.session.access_token = token_response["access_token"]
 
-        if 'authorization_details' in token_response:
-            self.session.authorization_details_enriched = token_response['authorization_details']
+        if "authorization_details" in token_response:
+            self.session.authorization_details_enriched = token_response[
+                "authorization_details"
+            ]
 
         if "id_token" in token_response:
             return self._decode_and_validate_id_token(token_response["id_token"])
@@ -305,7 +358,7 @@ class YesFlow(ABC):
             key=key,
             algorithms=["RS256"],
             issuer=self.session.oauth_configuration["issuer"],
-            audience=self.config["client_id"],
+            audience=self.config.client_id,
         )
 
         if id_token["nonce"] != self.session.oidc_nonce:
@@ -324,12 +377,14 @@ class YesSigningFlow(YesFlow):
     CREDENTIAL_ID = "qes_eidas"
     PROFILE = "http://uri.etsi.org/19432/v1.1.1#/creationprofile#"
 
-    def __init__(self, config: Dict, session: YesSigningSession):
+    def __init__(self, config: YesConfiguration, session: YesSigningSession):
         if not isinstance(session, YesSigningSession):
             raise Exception("Signing flow must be called with a YesSigningSession")
 
-        if not config.get('authz_style', self.DEFAULT_AUTHZ_STYLE) == self.AUTHZ_STYLE_PUSHED:
-            raise Exception("Signing flow only works with Pushed Authorization Requests.")
+        if not config.authz_style == YesAuthzStyle.PUSHED:
+            raise Exception(
+                "Signing flow only works with Pushed Authorization Requests."
+            )
 
         super().__init__(config, session)
 
@@ -337,12 +392,12 @@ class YesSigningFlow(YesFlow):
         super()._check_issuer(issuer_url)
 
         # from the existing QTSP configurations, select the one we want to use!
-        if not "qtsp_id" in self.config:
+        if not self.config.qtsp_id:
             raise YesError(
                 "Unable to select a QTSP. Please set a 'qtsp_id' key in the configuration to select a QTSP."
             )
 
-        selected_qtsp_id = self.config["qtsp_id"]
+        selected_qtsp_id = self.config.qtsp_id
         for qtsp in self.session.service_configuration["remote_signature_creation"]:
             if qtsp["qtsp_id"] == selected_qtsp_id:
                 self.session.qtsp_config = qtsp
@@ -362,12 +417,12 @@ class YesSigningFlow(YesFlow):
         parameters = super()._assemble_authz_parameters()
 
         document_digests = list(
-            doc.get_authz_details() for doc in self.session.documents
+            doc._get_authz_details() for doc in self.session.documents
         )
 
         authorization_details = {
             "type": "sign",
-            "locations": [self.session.qtsp_config["qtsp_id"]],
+            "locations": [self.session.qtsp_config['qtsp_id']],
             "credentialID": self.CREDENTIAL_ID,
             "documentDigests": document_digests,
             "hashAlgorithmOID": self.session.hash_algorithm.oid,
@@ -390,11 +445,26 @@ class YesSigningFlow(YesFlow):
         conformance_level: Optional[str] = "AdES-B-LT",
         documents: Optional[List[SigningDocument]] = None,
     ) -> Dict:
+        """Create the signatures by calling the QTSP with the relevant document hashes.
+
+        The signatures will be available afterwards **in the respective document objects**.
+
+        The raw signature is returned, but is only useful in special use cases.
+
+        Args:
+            signature_format (Optional[str], optional): The signature format to use, see the yes® documentation. Defaults to "P".
+            conformance_level (Optional[str], optional): The conformance level to use, see the yes® documentation. Defaults to "AdES-B-LT".
+            documents (Optional[List[SigningDocument]], optional): If defined, only the signatures for the referenced documents are created. Defaults to None (create signatures for all documents).
+
+        """
 
         if documents is None:
             documents = self.session.documents
 
-        hashes_to_sign = list(doc.get_hash() for doc in documents)
+        if not self.session.access_token:
+            raise Exception("No access token found. send_token_request must be used first to retrieve an access token.")
+
+        hashes_to_sign = list(doc._get_hash() for doc in documents)
 
         signdoc_data = {
             "SAD": self.session.access_token,
@@ -410,7 +480,7 @@ class YesSigningFlow(YesFlow):
 
         response = self._decode_or_raise_error(
             resp := requests.post(
-                self.session.qtsp_config["signDoc"],
+                self.session.qtsp_config['signDoc'],
                 headers={
                     # "Authorization": f"Bearer {self.session.access_token}",
                     "Accept": "*/*",
@@ -426,13 +496,13 @@ class YesSigningFlow(YesFlow):
         assert len(response["SignatureObject"]) == len(documents)
         for doc, signature_base64 in zip(documents, response["SignatureObject"]):
             signature = base64.decodebytes(signature_base64.encode("ascii"))
-            doc.process_signature(signature, response.get("revocationInfo", None))
+            doc._process_signature(signature, response.get("revocationInfo", None))
 
         return response
 
 
 class YesIdentityFlow(YesFlow):
-    def __init__(self, config: Dict, session: YesIdentitySession):
+    def __init__(self, config: YesConfiguration, session: YesIdentitySession):
         if not isinstance(session, YesIdentitySession):
             raise Exception("Identity flow must be called with a YesIdentitySession")
 
@@ -456,6 +526,13 @@ class YesIdentityFlow(YesFlow):
         return parameters
 
     def send_userinfo_request(self) -> Dict:
+        """
+        Request identity data from the userinfo endpoint. Not required if all
+        identity data is returned in the ID token (see the `claims` parameter).
+        """
+        if not self.session.access_token:
+            raise Exception("No access token found. send_token_request must be used first to retrieve an access token.")
+
         return self._decode_or_raise_error(
             requests.get(
                 self.session.oauth_configuration["userinfo_endpoint"],
@@ -470,25 +547,31 @@ class YesIdentityFlow(YesFlow):
 
 
 class YesIdentitySigningFlow(YesIdentityFlow, YesSigningFlow):
-    def __init__(self, config: Dict, session: YesIdentitySigningSession):
+    def __init__(self, config: YesConfiguration, session: YesIdentitySigningSession):
         if not isinstance(session, YesIdentitySigningSession):
-            raise Exception("Identity+Signing flow must be called with a YesIdentitySigningSession")
+            raise Exception(
+                "Identity+Signing flow must be called with a YesIdentitySigningSession"
+            )
 
-        if not config.get('authz_style', self.DEFAULT_AUTHZ_STYLE) == self.AUTHZ_STYLE_PUSHED:
-            raise Exception("Identity+Signing flow only works with Pushed Authorization Requests.")
+        if not config.authz_style == YesAuthzStyle.PUSHED:
+            raise Exception(
+                "Identity+Signing flow only works with Pushed Authorization Requests."
+            )
 
         super().__init__(config, session)
 
 
 class YesPaymentFlow(YesFlow):
     OAUTH_CONFIGURATION_SUFFIX = "/.well-known/oauth-authorization-server"
-    
-    def __init__(self, config: Dict, session: YesPaymentSession):
+
+    def __init__(self, config: YesConfiguration, session: YesPaymentSession):
         if not isinstance(session, YesPaymentSession):
             raise Exception("Payment flow must be called with a YesPaymentSession")
 
-        if not config.get('authz_style', self.DEFAULT_AUTHZ_STYLE) == self.AUTHZ_STYLE_PUSHED:
-            raise Exception("Payment flow only works with Pushed Authorization Requests.")
+        if not config.authz_style == YesAuthzStyle.PUSHED:
+            raise Exception(
+                "Payment flow only works with Pushed Authorization Requests."
+            )
 
         super().__init__(config, session)
 
@@ -536,15 +619,15 @@ class YesPaymentFlow(YesFlow):
 
     def get_payment_status(self) -> str:
         for el in self.session.authorization_details_enriched:
-            if el['type'] == 'payment_initiation':
+            if el["type"] == "payment_initiation":
                 authz_details = el
                 break
         else:
             raise YesError("Payment was not confirmed in authorization details.")
-        
+
         return self._decode_or_raise_error(
             requests.get(
-                authz_details['payment_information']['status_href'],
+                authz_details["payment_information"]["status_href"],
                 headers={
                     "Authorization": f"Bearer {self.session.access_token}",
                     "accept": "*/*",
@@ -552,4 +635,5 @@ class YesPaymentFlow(YesFlow):
                 cert=self.cert_config,
             ),
             is_oauth=False,
-        )['transactionStatus']
+        )["transactionStatus"]
+

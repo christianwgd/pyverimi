@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from base64 import b64decode, b64encode
 from datetime import datetime
 from io import BytesIO
-from pathlib import Path
+from typing import BinaryIO, List, Optional, Tuple
 
 import tzlocal
 from asn1crypto import crl
@@ -15,49 +15,81 @@ from pyhanko.sign.fields import SigSeedSubFilter
 from .errors import YesError
 from .hashes import HASH_ALGORITHMS
 
+__pdoc__ = {"SigningDocument": False}
+
 
 class SigningDocument(ABC):
-    def set_session(self, session):
+    signature: Optional[bytes] = None
+    revocation_info: Optional[str] = None
+    SUPPORTED_SIGNATURE_FORMATS: Tuple[str]
+
+    def _set_session(self, session):
         self.session = session
 
     @abstractmethod
-    def get_authz_details(self):
+    def _get_authz_details(self):
         pass
 
     @abstractmethod
-    def get_hash(self):
+    def _get_hash(self):
         pass
 
-    def process_signature(self, signature_bytes, revocation_info_base64):
+    def _process_signature(self, signature_bytes, revocation_info_base64):
         self.signature = signature_bytes
         self.revocation_info = revocation_info_base64
 
 
 class RawSigningDocument(SigningDocument):
+    """ 
+    A document for signing using the yes® signing service where the document
+    hash is provided. Should be used only for testing.
+
+    Signature and revocation information will be available in `signature` and
+    `revocation_info` after the flow.
+    """
+
     SUPPORTED_SIGNATURE_FORMATS = ("C", "P")
 
-    def __init__(self, label, hash):
+    def __init__(self, label: str, hash: str):
+        """
+        Args:
+            label (str): Label to be displayed to the user.
+            hash (str): Hash, base64(!) encoded, using the hash algorithm selected for the flow.
+        """
         self.hash = hash
         self.label = label
 
-    def get_authz_details(self):
+    def _get_authz_details(self):
         return {
             "hash": self.hash,
             "label": self.label,
         }
 
-    def get_hash(self):
+    def _get_hash(self):
         return self.hash
 
 
 class TextSigningDocument(SigningDocument):
+    """
+    A raw text document for signing using the yes® signing service. The text is
+    hashed and then signed. Not for use with PDF or other complex file types.
+
+    Signature and revocation information will be available in `signature` and
+    `revocation_info` after the flow.
+    """
+
     SUPPORTED_SIGNATURE_FORMATS = ("C", "P")
 
-    def __init__(self, label, text):
+    def __init__(self, label: str, text: str):
+        """
+        Args:
+            label (str): Label to be displayed to the user.
+            text (str): Text to be signed.
+        """
         self.text = text
         self.label = label
 
-    def get_authz_details(self):
+    def _get_authz_details(self):
         algo = self.session.hash_algorithm.algo
         self.hash = b64encode(algo(self.text.encode("utf-8")).digest()).decode("ascii")
         return {
@@ -65,19 +97,35 @@ class TextSigningDocument(SigningDocument):
             "label": self.label,
         }
 
-    def get_hash(self):
+    def _get_hash(self):
         return self.hash
 
 
 class DefaultSigningDocument(TextSigningDocument):
+    """
+    An 'empty' signing document where the user only confirms that their data is
+    correct. The text to be displayed is defined by the QTSP. A selection of
+    languages can be provided to ensure that the text displayed to the user is
+    in one of these languages. See the yes® documentation on QID and QESID for
+    details. 
+
+    Signature and revocation information will be available in `signature` and
+    `revocation_info` after the flow.
+    """
+
     SUPPORTED_SIGNATURE_FORMATS = "C"
 
     label = ""
 
-    def __init__(self, allowed_languages):
+    def __init__(self, allowed_languages: List[str]):
+        """
+        Args: 
+            allowed_languages (List[str]): List of acceptable two-letter language codes (e.g., `en`).
+
+        """
         self.allowed_languages = allowed_languages
 
-    def get_authz_details(self):
+    def _get_authz_details(self):
         # Inspect the QTSP's configuration to find the default document matching the requested language(s)
         chosen_default_doc = next(
             d
@@ -89,22 +137,35 @@ class DefaultSigningDocument(TextSigningDocument):
                 f"No default document found with selected language(s). Available languages: {', '.join(d['lang'] for d in self.session.qtsp_config['default_signing_documents'])}"
             )
         self.text = chosen_default_doc["text"]
-        return super().get_authz_details()
+        return super()._get_authz_details()
 
 
 class PDFSigningDocument(SigningDocument):
-    hash = None
+    """
+    PDF document handler for signing by the yes® signing service. 
 
-    def __init__(self, label, pdffile):
+    After the signing flow, the signed document will be available in
+    `signed_file` as a named temporary file open for reading.
+    """
+
+    hash = None
+    signed_file: Optional[tempfile.NamedTemporaryFile] = None
+
+    def __init__(self, label: str, pdffile: BinaryIO):
+        """
+        Args:
+            label (str): Label for the document to be displayed to the user.
+            pdffile (BinaryIO): File-like object, opened in binary mode, as the source for the PDF file.
+        """
         self.label = label
         self.input_file = pdffile
 
-    def set_session(self, session):
+    def _set_session(self, session):
         if session.hash_algorithm != HASH_ALGORITHMS["SHA-256"]:
             raise Exception("This library only supports SHA-256 for signing documents.")
-        return super().set_session(session)
+        return super()._set_session(session)
 
-    def prepare_pdf(self):
+    def _prepare_pdf(self):
         # write an in-place certification signature using the PdfCMSEmbedder
         # low-level API directly.
         self.input_file.seek(0)
@@ -145,18 +206,18 @@ class PDFSigningDocument(SigningDocument):
         self.cms_writer = cms_writer
         self.hash = b64encode(document_hash).decode("ascii")
 
-    def get_authz_details(self):
+    def _get_authz_details(self):
         return {
             "label": self.label,
-            "hash": self.get_hash(),
+            "hash": self._get_hash(),
         }
 
-    def get_hash(self):
+    def _get_hash(self):
         if not self.hash:
-            self.prepare_pdf()
+            self._prepare_pdf()
         return self.hash
 
-    def process_signature(self, signature_bytes, revocation_info_base64):
+    def _process_signature(self, signature_bytes, revocation_info_base64):
         parsed_ocsps = [
             OCSPResponse.load(b64decode(r.encode("ascii")))
             for r in revocation_info_base64["ocsp"]
@@ -175,7 +236,7 @@ class PDFSigningDocument(SigningDocument):
             ocsps=parsed_ocsps,
             crls=parsed_crls,
         )
-        self.signed_file = tempfile.NamedTemporaryFile('w+b')
+        self.signed_file = tempfile.NamedTemporaryFile("w+b")
         output.seek(0)
         while data := output.read(8192):
             self.signed_file.write(data)

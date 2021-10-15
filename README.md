@@ -8,24 +8,53 @@ Please refer to the [yes® Relying Party Developer Guide](https://www.yes.com/do
 
  * ☒ [yes® Identity Flow](https://yes.com/docs/rp-devguide/latest/IDENTITY/index.html) 
  * ☒ [yes® Signing Flow](https://yes.com/docs/rp-devguide/latest/QES/index.html) for Qualified Electronic Signatures
- * ☐ future yes® Flows (AIS, PIS, etc.)
+ * ☒ [yes® Credit Transfer](https://yes.com/docs/pis/1.6/index.html)
+ * ☐ future yes® Flows (AIS, ...)
+
+## Running the Examples
+
+**Step 1:** Acquire credentials to access the yes® ecosystem as described [here](https://www.yes.com/docs/rp-devguide/latest/ONBOARDING/index.html). Note that for testing **the identity flow**, you can use the Sandbox Demo Client credentials published [here](https://www.yes.com/docs/rp-devguide/latest/ONBOARDING/index.html#_sandbox_demo_client).
+
+Make the credentials available in environment variables:
+
+```bash
+export YES_SANDBOX_TEST_CERT=/home/user/yes-client/cert.pem
+export YES_SANDBOX_TEST_KEY=/home/user/yes-client/key.pem  
+export YES_SANDBOX_TEST_CLIENT_ID=sandbox.yes.com:e85ff3bc-96f8-4ae7-b6b1-894d8dde9ebe
+export YES_SANDBOX_TEST_REDIRECT_URI=http://localhost:3000/yes/oidccb
+```
+
+Now run the example:
+
+```bash
+python3 examples/simple_identity.py
+```
+or
+```bash
+python3 examples/full_signing_flow.py
+```
+
+Point your browser to http://localhost:3000/ to start the example.
+
 
 ## How to Use (Identity Flow)
 
-A stand-alone minimal example is provided in [`simple_identity.py`](examples/simple_identity.py).
+Please also refer to the example code in [`simple_identity.py`](examples/simple_identity.py).
 
 **Step 1:** Acquire credentials to access the yes® ecosystem as described [here](https://www.yes.com/docs/rp-devguide/latest/ONBOARDING/index.html). Note that for testing, you can use the Sandbox Demo Client credentials published [here](https://www.yes.com/docs/rp-devguide/latest/ONBOARDING/index.html#_sandbox_demo_client).
 
-**Step 2:** Put the `client_id`, the paths to the certificate and private key file, and other information into a configuration dictionary.
+**Step 2:** Put the `client_id`, the paths to the certificate and private key file, and other information into a `YesConfiguration` object.
 
 ```python
-yes_configuration = {
-    "environment": "sandbox",  # or production
-    "client_id": "sandbox.yes.com:e85ff3bc-96f8-4ae7-b6b1-894d8dde9ebe",  # provided by yes®
-    "cert_file": "cert.pem",  # see developer guide
-    "key_file": "key.pem",  # see developer guide
-    "redirect_uri": "http://localhost:3000/yes/oidccb",  # exactly as registered with yes®
-}
+import yes 
+
+yes_configuration = yes.YesConfiguration(
+    environment=yes.YesEnvironment.SANDBOX, # or .PRODUCTION
+    client_id="sandbox.yes.com:e85ff3bc-96f8-4ae7-b6b1-894d8dde9ebe",  # provided by yes®
+    cert_file="cert.pem",  # see developer guide
+    key_file="key.pem",  # see developer guide
+    redirect_uri="http://localhost:3000/yes/oidccb",  # exactly as registered with yes®
+)
 
 ```
 

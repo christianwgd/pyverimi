@@ -1,0 +1,32 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>yes® example</title>
+
+</head>
+
+<body>
+    yes® Payment example
+    <form action="/yes/start" method="post">
+                
+        <fieldset>
+            <legend>SEPA Credit Transfer:</legend>
+            <label for="creditor_name">Name:</label>
+            <input type="text" id="creditor_name" name="creditor_name" value="Max Mustermann"><br><br>
+            <label for="creditor_account_iban">IBAN:</label>
+            <input type="text" id="creditor_account_iban" name="creditor_account_iban" value="DE91500105178389855447"><br><br>
+        
+            <label for="amount">Amount:</label>
+            <input type="number" id="amount" name="amount" value="42.69">€<br><br>
+            <label for="remittance_information">Purpose:</label>
+            <input type="text" id="remittance_information" name="remittance_information" value="So long, and thanks for all the fish"><br><br>
+        </fieldset>
+        <input type="submit" value="yes®">
+    </form>
+    
+</body>
+</html>

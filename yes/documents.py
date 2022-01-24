@@ -7,6 +7,9 @@ from typing import BinaryIO, List, Optional, Tuple
 from pyhanko.pdf_utils.writer import BasePdfFileWriter, PdfFileWriter
 from pyhanko.sign.signers.pdf_signer import PdfTBSDocument
 
+from pyhanko_certvalidator import ValidationContext
+
+
 import tzlocal
 from asn1crypto import crl
 from asn1crypto.ocsp import OCSPResponse
@@ -228,12 +231,20 @@ class PDFSigningDocument(SigningDocument):
             crl.CertificateList.load(b64decode(c.encode("ascii")))
             for c in revocation_info_base64["crl"]
         ]
+        vc = ValidationContext(crls=parsed_crls, ocsps=parsed_ocsps)
         # output, sig_contents = self.cms_data.send(signature_bytes)
         self.signed_file = open(self.signed_file_name, "r+b")
+        validation.DocumentSecurityStore.add_dss(
+            output_stream=self.signed_file,
+            ocsps=parsed_ocsps,
+            crls=parsed_crls,
+            sig_contents=signature_bytes,
+        )
         PdfTBSDocument.finish_signing(
             self.signed_file,
             prepared_digest=self.signature_prepared_digest,
             signature_cms=signature_bytes,
             post_sign_instr=self.signature_psi,
+            validation_context=vc,
         )
         self.signed_file.seek(0)

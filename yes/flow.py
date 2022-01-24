@@ -70,6 +70,15 @@ class YesFlow(ABC):
     def _decode_or_raise_error(
         self, response, expected_status=200, expect_empty=False, is_oauth=False
     ):
+
+        if response.status_code != expected_status:
+            if not is_oauth:
+                raise YesError(
+                    f"Response status code {response.status_code}, response: '{response.text}'."
+                )
+            else:
+                raise parse_oauth_error(response)
+
         if not expect_empty:
             try:
                 response_contents = response.json()
@@ -81,14 +90,6 @@ class YesFlow(ABC):
                 )
         else:
             response_contents = response.text
-
-        if response.status_code != expected_status:
-            if not is_oauth:
-                raise YesError(
-                    f"Response status code {response.status_code}, response: '{response.text}'."
-                )
-            else:
-                raise parse_oauth_error(response)
 
         return response_contents
 

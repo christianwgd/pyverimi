@@ -91,7 +91,12 @@ class YesIdentitySession(YesSession):
 
 
 class YesSigningSession(YesSession):
-    """A session object for a signing flow."""
+    """A session object for a signing flow.
+    
+    When using PDFSigningDocuments, consider adding a more efficient
+    session storage. See the documentation for yes.PDFSigningDocument
+    for details.
+    """
     qtsp_config: Optional[Dict]
     hash_algorithm: Hash
     documents: List[SigningDocument]

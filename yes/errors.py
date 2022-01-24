@@ -30,14 +30,19 @@ YES_OAUTH_ERRORS = (YesInvalidAuthorizationDetailsError,)
 
 
 def parse_oauth_error(error_response):
-    json = error_response.json()
-    for error_class in YES_OAUTH_ERRORS:
-        if error_class.error_id == json["error"]:
-            break
-    else:
-        error_class = YesOAuthError
+    try:
+        json = error_response.json()
+        for error_class in YES_OAUTH_ERRORS:
+            if error_class.error_id == json["error"]:
+                break
+        else:
+            error_class = YesOAuthError
 
-    e = error_class()
-    e.oauth_error = json["error"]
-    e.oauth_error_description = json["error_description"]
-    return e
+        e = error_class()
+        e.oauth_error = json["error"]
+        e.oauth_error_description = json["error_description"]
+        return e
+    except Exception as e:
+        return YesError(
+            f"Response status code {error_response.status_code}, response: '{error_response.text}'."
+        )

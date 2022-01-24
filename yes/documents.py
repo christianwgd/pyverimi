@@ -4,6 +4,8 @@ from base64 import b64decode, b64encode
 from datetime import datetime
 from io import BytesIO
 from typing import BinaryIO, List, Optional, Tuple
+from pyhanko.pdf_utils.writer import BasePdfFileWriter, PdfFileWriter
+from pyhanko.sign.signers.pdf_signer import PdfTBSDocument
 
 import tzlocal
 from asn1crypto import crl
@@ -146,10 +148,18 @@ class PDFSigningDocument(SigningDocument):
 
     After the signing flow, the signed document will be available in
     `signed_file` as a named temporary file open for reading.
+
+    NOTE: In this implementation, the file is read to memory when
+    creating the object. This is not efficient for large files, but
+    enables a simple serialization of the object. It also means that 
+    the serialized object can be quite large, e.g., in a session storage.
+    Consider overriding `_store_file` and `_restore_file` to enable a 
+    more efficient storage, e.g., based on local files.
     """
 
     hash = None
-    signed_file: Optional[tempfile.NamedTemporaryFile] = None
+    signed_file_name: str
+    signed_file: BinaryIO
 
     def __init__(self, label: str, pdffile: BinaryIO):
         """
@@ -158,7 +168,13 @@ class PDFSigningDocument(SigningDocument):
             pdffile (BinaryIO): File-like object, opened in binary mode, as the source for the PDF file.
         """
         self.label = label
-        self.input_file = pdffile
+        self._store_file(pdffile)
+
+    def _store_file(self, pdffile: BinaryIO):
+        self.pdf_file = pdffile.read()
+
+    def _restore_file(self) -> BytesIO:
+        return BytesIO(self.pdf_file)
 
     def _set_session(self, session):
         if session.hash_algorithm != HASH_ALGORITHMS["SHA-256"]:
@@ -168,43 +184,29 @@ class PDFSigningDocument(SigningDocument):
     def _prepare_pdf(self):
         # write an in-place certification signature using the PdfCMSEmbedder
         # low-level API directly.
-        self.input_file.seek(0)
-        input_buf = BytesIO(self.input_file.read())
+        input_buf = self._restore_file()
         w = IncrementalPdfFileWriter(input_buf)
+        signed_file_obj = tempfile.NamedTemporaryFile("w+b", delete=False)
+        self.signed_file_name = signed_file_obj.name
 
-        # Phase 1: coroutine sets up the form field
-        cms_writer = signers.PdfCMSEmbedder().write_cms(
-            field_name="Signature", writer=w
+        pdf_signer = signers.PdfSigner(
+            signers.PdfSignatureMetadata(
+                use_pades_lta=False,
+                md_algorithm="sha256",
+                field_name="yes_signature",
+                name="Signature 1",
+            ),
+            signers.ExternalSigner(None, None, signature_value=bytes(20000)),
         )
-        sig_field_ref = next(cms_writer)
+        prep_digest, tbs_document, output = pdf_signer.digest_doc_for_signing(
+            w, bytes_reserved=20000, output=signed_file_obj
+        )
+        psi = tbs_document.post_sign_instructions
 
-        # just for kicks, let's check
-        assert sig_field_ref.get_object()["/T"] == "Signature"
-
-        # Phase 2: make a placeholder signature object,
-        # wrap it up together with the MDP config we want, and send that
-        # on to cms_writer
-        timestamp = datetime.now(tz=tzlocal.get_localzone())
-        sig_obj = signers.SignatureObject(
-            timestamp=timestamp, bytes_reserved=20000, subfilter=SigSeedSubFilter.PADES
-        )
-        md_algorithm = "sha256"
-        cms_writer.send(
-            signers.SigObjSetup(
-                sig_placeholder=sig_obj,
-                mdp_setup=signers.SigMDPSetup(
-                    md_algorithm=md_algorithm,
-                    certify=True,
-                    docmdp_perms=fields.MDPPerm.NO_CHANGES,
-                ),
-            )
-        )
-        # Phase 3: write & hash the document (with placeholder)
-        document_hash = cms_writer.send(
-            signers.SigIOSetup(md_algorithm=md_algorithm, in_place=True)
-        )
-        self.cms_writer = cms_writer
-        self.hash = b64encode(document_hash).decode("ascii")
+        self.signature_prepared_digest = prep_digest
+        self.signature_psi = psi
+        self.hash = b64encode(prep_digest.document_digest).decode("ascii")
+        signed_file_obj.close()
 
     def _get_authz_details(self):
         return {
@@ -226,19 +228,12 @@ class PDFSigningDocument(SigningDocument):
             crl.CertificateList.load(b64decode(c.encode("ascii")))
             for c in revocation_info_base64["crl"]
         ]
-
-        output, sig_contents = self.cms_writer.send(signature_bytes)
-
-        validation.DocumentSecurityStore.add_dss(
-            output_stream=output,
-            sig_contents=sig_contents,
-            certs=[],
-            ocsps=parsed_ocsps,
-            crls=parsed_crls,
+        # output, sig_contents = self.cms_data.send(signature_bytes)
+        self.signed_file = open(self.signed_file_name, "r+b")
+        PdfTBSDocument.finish_signing(
+            self.signed_file,
+            prepared_digest=self.signature_prepared_digest,
+            signature_cms=signature_bytes,
+            post_sign_instr=self.signature_psi,
         )
-        self.signed_file = tempfile.NamedTemporaryFile("w+b")
-        output.seek(0)
-        while data := output.read(8192):
-            self.signed_file.write(data)
-
         self.signed_file.seek(0)

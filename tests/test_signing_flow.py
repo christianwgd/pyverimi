@@ -1,5 +1,6 @@
 from time import sleep
 
+import pickle
 import pytest
 import yes
 from furl import furl
@@ -11,7 +12,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 USERNAME = "test001e"
 # QTSP_ID = "sp:sandbox.yes.com:635ae52b-5a3e-4495-b117-fed623030038" # infocert
 QTSP_ID = "sp:sandbox.yes.com:85ac6820-8518-4aa1-ba85-de4307175b64"  # namirial
-
 
 def test_signing_simple(yes_sandbox_test_config):
     documents = [
@@ -27,6 +27,11 @@ def test_signing_simple(yes_sandbox_test_config):
     flow = yes.YesSigningFlow(yes_sandbox_test_config, session)
 
     ac_start = furl(flow.start_yes_flow())
+    
+    # pickle/unpickle session to emulate session storage
+    pickle.loads(pickle.dumps(session))
+    flow = yes.YesSigningFlow(yes_sandbox_test_config, session)
+
     idp_uri = flow.handle_ac_callback(
         ac_start.args["state"], "https://testidp.sandbox.yes.com/issuer/10000005"
     )
@@ -46,6 +51,11 @@ def test_signing_simple(yes_sandbox_test_config):
     wait.until(EC.url_contains("code="))
     authorization_response = furl(driver.current_url)
     driver.quit()
+
+    # pickle/unpickle session to emulate session storage
+    pickle.loads(pickle.dumps(session))
+    flow = yes.YesSigningFlow(yes_sandbox_test_config, session)
+
     flow.handle_oidc_callback(
         authorization_response.args["iss"], authorization_response.args["code"]
     )

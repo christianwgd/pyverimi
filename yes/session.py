@@ -19,7 +19,7 @@ class PKCE:
     challenge: str
 
     def __init__(self):
-        self.verifier = secrets.token_urlsafe(32)
+        self.verifier = secrets.token_urlsafe(64)
         self.challenge = (
             urlsafe_b64encode(hashlib.sha256(bytes(self.verifier, "ascii")).digest())
             .decode("ascii")
@@ -171,5 +171,32 @@ class YesPaymentSession(YesSession):
         if self.currency != "EUR":
             raise YesError("Currency other than EUR are not supported by the yes ecosystem right now.")
 
-        super().__init__()
+        YesSession.__init__(self)
 
+class YesPaymentSigningSession(YesPaymentSession, YesSigningSession):
+    def __init__(
+        self,
+        amount: Decimal,
+        remittance_information: str,
+        creditor_name: str,
+        creditor_account_iban: str,
+        debtor_account_holder_name: Optional[Tuple[str, str]] = None,
+        debtor_account_iban: Optional[str] = None,
+        currency: str = "EUR",
+        documents: List[SigningDocument] = None,
+        identity_assurance_claims: List[str] = [],
+        hash_algorithm: Hash = HASH_ALGORITHMS["SHA-256"],
+    ):
+        YesPaymentSession.__init__(
+            self,
+            amount,
+            remittance_information,
+            creditor_name,
+            creditor_account_iban,
+            debtor_account_holder_name,
+            debtor_account_iban,
+            currency,
+        )
+        YesSigningSession.__init__(
+            self, documents, identity_assurance_claims, hash_algorithm
+        )

@@ -16,7 +16,8 @@ from .session import (
     YesSession,
     YesSigningSession,
     YesPaymentSession,
-)
+    YesPaymentSigningSession,
+    )
 from .configuration import YesAuthzStyle, YesConfiguration, YesEnvironment
 
 
@@ -102,7 +103,7 @@ class YesFlow(ABC):
         return str(ac_redirect)
 
     def handle_ac_callback(
-        self, state: str, issuer_url: Optional[str] = None, error: Optional[str] = None, selected_bic: str = None
+        self, state: str, issuer_url: Optional[str] = None, error: Optional[str] = None, selected_bic: str = None, unsafe_skip_check_issuer: bool = False
     ) -> str:
         """Second step in the yes® flow. The user is being redirected from the
         yes® account chooser to your registered account chooser redirect URI.
@@ -137,7 +138,11 @@ class YesFlow(ABC):
             f"Accepted account chooser callback, incoming issuer url: {str(issuer_url)}."
         )
 
-        self._check_issuer(issuer_url)
+        if not unsafe_skip_check_issuer:
+            self._check_issuer(issuer_url)
+        else:
+            self.session.issuer_url = issuer_url
+
         self._retrieve_oauth_configuration()
         authz_parameters = self._encode_authz_parameters()
         if self.config.authz_style == YesAuthzStyle.PUSHED:
@@ -638,3 +643,8 @@ class YesPaymentFlow(YesFlow):
             is_oauth=False,
         )["transactionStatus"]
 
+class YesPaymentSigningFlow(YesPaymentFlow, YesSigningFlow):
+    def __init__(self, config: YesConfiguration, session: YesPaymentSigningSession):
+        super().__init__(config, session)
+
+    

@@ -15,7 +15,7 @@ class PKCE:
     challenge: str
 
     def __init__(self):
-        self.verifier = secrets.token_urlsafe(32) + "="
+        self.verifier = secrets.token_urlsafe(64)
         self.challenge = (
             urlsafe_b64encode(hashlib.sha256(bytes(self.verifier, "ascii")).digest())
             .decode("ascii")

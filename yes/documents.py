@@ -10,7 +10,6 @@ from pyhanko.sign.signers.pdf_signer import PdfTBSDocument
 from pyhanko_certvalidator import ValidationContext
 
 
-import tzlocal
 from asn1crypto import crl
 from asn1crypto.ocsp import OCSPResponse
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter

@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -7,6 +7,7 @@ from pprint import pp
 
 
 class YesEnvironment:
+    name: str
     url_account_chooser: Optional[str] = None
     url_issuer_check: Optional[str] = None
     url_service_configuration: Optional[str] = None
@@ -16,19 +17,26 @@ class YesEnvironment:
 
     def __init__(
         self,
+        name,
         url_account_chooser: Optional[str],
         url_service_configuration: Optional[str],
     ):
+        self.name = name
         self.url_account_chooser = url_account_chooser
         self.url_service_configuration = url_service_configuration
 
+    def __str__(self):
+        return self.name
+
 
 YesEnvironment.PRODUCTION = YesEnvironment(
+    "production",
     url_account_chooser="https://accounts.yes.com/",
     url_service_configuration="https://api.yes.com/service-configuration/v1/",
 )
 
 YesEnvironment.SANDBOX = YesEnvironment(
+    "sandbox",
     url_account_chooser="https://accounts.sandbox.yes.com/",
     url_service_configuration="https://api.sandbox.yes.com/service-configuration/v1/",
 )

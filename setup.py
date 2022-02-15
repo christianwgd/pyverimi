@@ -19,5 +19,5 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.8",
-    install_requires=["furl", "PyJWT", "pyHanko[pkcs11]==0.8.0"],
+    install_requires=["furl", "PyJWT", "pyHanko[pkcs11]==0.8.0", "requests", "pprint"],
 )

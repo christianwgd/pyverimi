@@ -48,9 +48,10 @@ CLAIMS_TESTS = [
     ),
 ]
 
-
+@pytest.mark.parametrize("authz_style", list(yes.YesAuthzStyle))
 @pytest.mark.parametrize("username,claims,compare_data", CLAIMS_TESTS)
-def test_identity_simple(yes_sandbox_test_config, username, claims, compare_data):
+def test_identity_simple(yes_sandbox_test_config, username, claims, compare_data, authz_style):
+    yes_sandbox_test_config.authz_style = authz_style
     acr_values = ["https://www.yes.com/acrs/online_banking_sca"]
     claims_req = {"id_token": claims, "userinfo": claims}
     session = yes.YesIdentitySession(claims_req, acr_values)

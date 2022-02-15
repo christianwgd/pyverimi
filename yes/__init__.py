@@ -3,6 +3,7 @@ from .flow import (
     YesIdentityFlow,
     YesSigningFlow,
     YesIdentitySigningFlow,
+    YesIdentityPaymentFlow,
     YesPaymentFlow,
     YesPaymentSigningFlow,
 )
@@ -10,6 +11,7 @@ from .session import (
     YesIdentitySession,
     YesSigningSession,
     YesIdentitySigningSession,
+    YesIdentityPaymentSession,
     YesPaymentSession,
     YesPaymentSigningSession,
 )

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -6,9 +6,32 @@ import os
 from pprint import pp
 
 
-class YesEnvironment(Enum):
-    SANDBOX = "sandbox"
-    PRODUCTION = "production"
+class YesEnvironment:
+    url_account_chooser: Optional[str] = None
+    url_issuer_check: Optional[str] = None
+    url_service_configuration: Optional[str] = None
+
+    PRODUCTION: "YesEnvironment"
+    SANDBOX: "YesEnvironment"
+
+    def __init__(
+        self,
+        url_account_chooser: Optional[str],
+        url_service_configuration: Optional[str],
+    ):
+        self.url_account_chooser = url_account_chooser
+        self.url_service_configuration = url_service_configuration
+
+
+YesEnvironment.PRODUCTION = YesEnvironment(
+    url_account_chooser="https://accounts.yes.com/",
+    url_service_configuration="https://api.yes.com/service-configuration/v1/",
+)
+
+YesEnvironment.SANDBOX = YesEnvironment(
+    url_account_chooser="https://accounts.sandbox.yes.com/",
+    url_service_configuration="https://api.sandbox.yes.com/service-configuration/v1/",
+)
 
 
 class YesAuthzStyle(Enum):
@@ -18,6 +41,7 @@ class YesAuthzStyle(Enum):
         PUSHED: OAuth 2.0 Pushed Authorization Requests according to RFC9126 (more secure)
         FRONTEND: OAuth 2.0 classic authorization request as defined in RFC6749
     """
+
     PUSHED = "pushed"
     FRONTEND = "frontend"
 
@@ -41,6 +65,20 @@ class YesConfiguration:
                 f"this library, the files are available in the yes developer "
                 f"documentation at https://yes.com/docs"
             )
+
+    @staticmethod
+    def from_dict(dct):
+        return YesConfiguration(
+            client_id=dct["client_id"],
+            cert_file=dct["cert_file"],
+            key_file=dct["key_file"],
+            redirect_uri=dct["redirect_uri"],
+            environment=dct.get("environment", "sandbox"),
+            qtsp_id=dct.get("qtsp_id"),
+            authz_style=YesAuthzStyle.PUSHED
+            if (dct.get("authz_style", "pushed") == "pushed")
+            else YesAuthzStyle.FRONTEND,
+        )
 
     @staticmethod
     def sandbox_test_from_env():

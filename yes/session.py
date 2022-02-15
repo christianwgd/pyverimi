@@ -149,6 +149,7 @@ class YesPaymentSession(YesSession):
     creditor_account_iban: str
     debtor_account_holder_name: Optional[Tuple[str, str]]
     debtor_account_iban: Optional[str]
+    debtor_account_holder_same_name: bool
     currency: str
 
     def __init__(
@@ -159,14 +160,20 @@ class YesPaymentSession(YesSession):
         creditor_account_iban: str,
         debtor_account_holder_name: Optional[Tuple[str, str]] = None,
         debtor_account_iban: Optional[str] = None,
+        debtor_account_holder_same_name: bool = False,
         currency: str = "EUR",
     ):
         self.amount = amount
         self.remittance_information = remittance_information
         self.creditor_name = creditor_name
         self.creditor_account_iban = creditor_account_iban
+        if debtor_account_holder_name is not None and debtor_account_holder_same_name:
+            raise YesError(
+                "If debtor_account_holder_same_name is True, debtor_account_holder_name must be None."
+            )
         self.debtor_account_holder_name = debtor_account_holder_name
         self.debtor_account_iban = debtor_account_iban
+        self.debtor_account_holder_same_name = debtor_account_holder_same_name
         self.currency = currency
         if self.currency != "EUR":
             raise YesError("Currency other than EUR are not supported by the yes ecosystem right now.")
@@ -182,6 +189,7 @@ class YesPaymentSigningSession(YesPaymentSession, YesSigningSession):
         creditor_account_iban: str,
         debtor_account_holder_name: Optional[Tuple[str, str]] = None,
         debtor_account_iban: Optional[str] = None,
+        debtor_account_holder_same_name: bool = False,
         currency: str = "EUR",
         documents: List[SigningDocument] = None,
         identity_assurance_claims: List[str] = [],
@@ -195,8 +203,36 @@ class YesPaymentSigningSession(YesPaymentSession, YesSigningSession):
             creditor_account_iban,
             debtor_account_holder_name,
             debtor_account_iban,
+            debtor_account_holder_same_name,
             currency,
         )
         YesSigningSession.__init__(
             self, documents, identity_assurance_claims, hash_algorithm
+        )
+
+class YesIdentityPaymentSession(YesIdentitySession, YesPaymentSession):
+    def __init__(
+        self,
+        claims,
+        request_second_factor,
+        amount: Decimal,
+        remittance_information: str,
+        creditor_name: str,
+        creditor_account_iban: str,
+        debtor_account_holder_name: Optional[Tuple[str, str]] = None,
+        debtor_account_iban: Optional[str] = None,
+        debtor_account_holder_same_name: bool = False,
+        currency: str = "EUR",
+    ):
+        YesIdentitySession.__init__(self, claims, request_second_factor)
+        YesPaymentSession.__init__(
+            self,
+            amount,
+            remittance_information,
+            creditor_name,
+            creditor_account_iban,
+            debtor_account_holder_name,
+            debtor_account_iban,
+            debtor_account_holder_same_name,
+            currency,
         )

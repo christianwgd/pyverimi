@@ -2,6 +2,8 @@
 
 This library implements a complete yes® relying party / client flow in Python.
 
+> :warning: **Please read the [license](LICENSE) before using!** This is not an SDK for yes and not part of any contract you might have with yes.com.
+
 Please refer to the [yes® Relying Party Developer Guide](https://www.yes.com/docs/rp-devguide/latest/index.html) for a description of the yes® flows.
 
 ## Implementation Status

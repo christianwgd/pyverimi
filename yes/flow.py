@@ -193,7 +193,6 @@ class YesFlow(ABC):
             del parameters["authorization_details"]
         if "claims" in parameters:
             parameters["claims"] = json.dumps(parameters["claims"])
-        print(parameters)
         return parameters
 
     def _prepare_authz_url_pushed(self, par_ameters: Dict) -> str:

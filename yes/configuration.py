@@ -37,8 +37,8 @@ YesEnvironment.PRODUCTION = YesEnvironment(
 
 YesEnvironment.SANDBOX = YesEnvironment(
     "sandbox",
-    url_account_chooser="https://accounts.sandbox.yes.com/",
-    url_service_configuration="https://api.sandbox.yes.com/service-configuration/v1/",
+    url_account_chooser="https://accounts.sandbox.openbanking.verimi.cloud/",
+    url_service_configuration="https://api.sandbox.openbanking.verimi.cloud/service-configuration/v1/",
 )
 
 

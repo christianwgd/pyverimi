@@ -31,7 +31,7 @@ class YesEnvironment:
 
 YesEnvironment.PRODUCTION = YesEnvironment(
     "production",
-    url_account_chooser="https://accounts.openbanking.verimi.de",
+    url_account_chooser="https://accounts.openbanking.verimi.de/",
     url_service_configuration="https://api.openbanking.verimi.de/service-configuration/v1/",
 )
 
